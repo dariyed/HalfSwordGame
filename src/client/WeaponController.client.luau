@@ -96,28 +96,32 @@ local function onCharacter(character: Model)
         end
 
         if lmbDown then
-            -- Swing mode: chase mouse on reach sphere
+            -- Swing mode: spring-based so sword has weight and lag
             local delta = UserInputService:GetMouseDelta()
             swingState = SwingMath.accumulate(swingState, delta.X, delta.Y)
             local goalCF = SwingMath.toGoalCFrame(swingState, root.CFrame)
 
+            alignPos.RigidityEnabled = false
             alignPos.Position = goalCF.Position
             alignPos.MaxForce = SWING_MAX_FORCE
             alignPos.Responsiveness = SWING_RESPONSIVENESS
 
+            alignOri.RigidityEnabled = false
             alignOri.CFrame = goalCF
             alignOri.MaxTorque = SWING_MAX_TORQUE
             alignOri.Responsiveness = SWING_RESPONSIVENESS
         else
-            -- Rest mode: track the hand so the sword rides it like a weld
+            -- Rest mode: perfectly rigid — no spring lag when walking
             local restPos = (hand.CFrame * CFrame.new(0, -1.1, 0)).Position
             alignPos.Position = restPos
             alignPos.MaxForce = REST_MAX_FORCE
             alignPos.Responsiveness = REST_RESPONSIVENESS
+            alignPos.RigidityEnabled = true
 
             alignOri.CFrame = hand.CFrame
             alignOri.MaxTorque = REST_MAX_TORQUE
             alignOri.Responsiveness = REST_RESPONSIVENESS
+            alignOri.RigidityEnabled = true
 
             -- Decay swing state so next LMB press starts from neutral
             swingState = {
