@@ -53,14 +53,13 @@ UserInputService.InputBegan:Connect(function(input, processed)
         if not character then
             return
         end
-        -- Parts to keep visible in first-person (arms, legs, and weapon)
+        -- Parts to keep visible in first-person.
+        -- Upper arms are excluded: they swing into the camera view and block it.
         local KEEP_VISIBLE = {
             LeftHand = true,
             RightHand = true,
             LeftLowerArm = true,
             RightLowerArm = true,
-            LeftUpperArm = true,
-            RightUpperArm = true,
             LeftFoot = true,
             RightFoot = true,
             LeftLowerLeg = true,

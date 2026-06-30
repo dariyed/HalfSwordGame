@@ -24,7 +24,7 @@ export type SwingDirection = "left" | "right" | "up" | "down" | "none"
 local MIN_YAW = math.rad(-70)
 local MAX_YAW = math.rad(110)
 local MIN_PITCH = math.rad(-70)
-local MAX_PITCH = math.rad(70)
+local MAX_PITCH = math.rad(45)
 
 -- Accumulate mouse delta into swing state
 local function accumulate(state: SwingState, dx: number, dy: number, scale: number?): SwingState
