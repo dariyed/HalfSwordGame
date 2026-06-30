@@ -1,6 +1,7 @@
 --[[
     Spawns a gray stick and welds it rigidly to the right hand.
-    WeaponController drives the arm via IKControl; the sword follows for free.
+    WeaponController (LocalScript) creates a local IKControl that swings the arm;
+    the sword follows for free because of the WeldConstraint.
 ]]
 
 local Players = game:GetService("Players")
