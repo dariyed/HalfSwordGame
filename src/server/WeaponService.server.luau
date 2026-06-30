@@ -3,22 +3,20 @@
     WeaponController (LocalScript) creates a local IKControl that swings the arm;
     the sword follows for free because of the WeldConstraint.
 
-    Drop mechanic:
-    While the sword is held, a Heartbeat loop uses GetPartsInPart (a geometric
-    query — works without CanCollide) to detect when the sword overlaps
-    non-character geometry.
+    Drop mechanic — uses Touched / TouchEnded (requires CanCollide = true):
       • Fast-moving hit (AssemblyLinearVelocity ≥ INSTANT_DROP_SPEED): instant drop.
-      • Sustained overlap (sword pressed into something): drop after SUSTAIN_TIME s.
-    On drop the WeldConstraint is disabled and CanCollide is enabled so the
-    sword falls and rests on the ground as a physics object.
+      • Sustained contact (sword pressed against something ≥ SUSTAIN_TIME s): drop.
+    The WeldConstraint prevents the sword from being physically displaced while held,
+    so CanCollide = true only causes collisions to be detected, not to move the sword.
+    On drop the weld is disabled; the sword then falls as a free physics object.
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 -- === Drop knobs ===
-local INSTANT_DROP_SPEED = 25 -- studs/s: overlapping part must be this fast to instant-drop
-local SUSTAIN_TIME = 1.5 -- seconds of continuous overlap before a pressure-drop
+local INSTANT_DROP_SPEED = 25 -- studs/s: hit part velocity that triggers an instant drop
+local SUSTAIN_TIME = 1.5 -- seconds of continuous contact before a pressure-drop
 
 local function equipSword(character: Model, player: Player)
     local hand = character:WaitForChild("RightHand", 5) :: BasePart?
@@ -32,7 +30,7 @@ local function equipSword(character: Model, player: Player)
     sword.Size = Vector3.new(0.2, 2, 0.2)
     sword.BrickColor = BrickColor.new("Medium stone grey")
     sword.Material = Enum.Material.SmoothPlastic
-    sword.CanCollide = false -- kept off while held; enabled on drop to avoid weld jitter
+    sword.CanCollide = true -- needed for Touched events; weld stops it being displaced
     sword.Anchored = false
     sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character
@@ -43,48 +41,50 @@ local function equipSword(character: Model, player: Player)
     weld.Part1 = sword
     weld.Parent = sword
 
-    -- Overlap params: exclude the character so self-hits never trigger a drop
-    local overlapParams = OverlapParams.new()
-    overlapParams.FilterDescendantsInstances = { character }
-    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+    local function dropSword()
+        if not weld.Enabled then
+            return
+        end
+        weld.Enabled = false
+    end
 
+    -- Track which non-character parts are currently touching the sword
+    local contacts: { [BasePart]: boolean } = {}
     local contactTimer = 0
-    local checkTick = 0
+
+    sword.Touched:Connect(function(hit)
+        if not weld.Enabled then
+            return
+        end
+        if hit:IsDescendantOf(character) then
+            return
+        end
+
+        -- Instant drop: something fast struck the sword
+        if hit.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
+            dropSword()
+            return
+        end
+
+        -- Start tracking contact for the sustained-pressure drop
+        contacts[hit] = true
+    end)
+
+    sword.TouchEnded:Connect(function(hit)
+        contacts[hit] = nil
+    end)
 
     local conn: RBXScriptConnection
     conn = RunService.Heartbeat:Connect(function(dt)
-        -- Stop checking once the sword is dropped or the character is gone
         if not weld.Enabled or not character:IsDescendantOf(game) then
             conn:Disconnect()
             return
         end
 
-        -- Run the geometric query every 5 frames to keep cost low
-        checkTick += 1
-        if checkTick % 5 ~= 0 then
-            return
-        end
-
-        local overlapping = workspace:GetPartsInPart(sword, overlapParams)
-
-        local anyContact = false
-        for _, part in overlapping do
-            -- Instant drop: a fast-moving object punched through the sword
-            if part.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
-                weld.Enabled = false
-                sword.CanCollide = true
-                conn:Disconnect()
-                return
-            end
-            anyContact = true
-        end
-
-        if anyContact then
-            contactTimer += dt * 5 -- compensate for the ×5 frame skip
+        if next(contacts) ~= nil then
+            contactTimer += dt
             if contactTimer >= SUSTAIN_TIME then
-                weld.Enabled = false
-                sword.CanCollide = true
-                conn:Disconnect()
+                dropSword()
             end
         else
             contactTimer = 0
