@@ -25,7 +25,9 @@ local player = Players.LocalPlayer
 -- Without this the default script also sets humanoid.Jump = true while Space is held,
 -- causing the character to re-jump every time it lands.
 local PlayerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
-PlayerModule:GetControls():Disable()
+pcall(function()
+    PlayerModule:GetControls():Disable()
+end)
 
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid") :: Humanoid
