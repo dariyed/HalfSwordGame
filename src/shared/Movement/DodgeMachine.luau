@@ -5,9 +5,9 @@
 ]]
 
 local SWITCH_WINDOW = 0.25 -- seconds: how fast the switch must happen to count as a dodge
-local DODGE_DURATION = 0.18 -- seconds: how long the speed boost lasts
+local DODGE_DURATION = 0.14 -- seconds: how long the speed boost lasts
 local DODGE_COOLDOWN = 1.2 -- seconds: minimum gap between dodges
-local DODGE_MULTIPLIER = 2.2 -- speed multiplier during the boost
+local DODGE_MULTIPLIER = 1.5 -- speed multiplier during the boost
 
 local DodgeMachine = {}
 DodgeMachine.__index = DodgeMachine
