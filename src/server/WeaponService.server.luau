@@ -1,6 +1,6 @@
 --[[
-    Spawns a gray stick for each player and parents it to their character.
-    No weld — the client WeaponController drives it via AlignPosition/Orientation.
+    Spawns a gray stick and welds it rigidly to the right hand.
+    WeaponController drives the arm via IKControl; the sword follows for free.
 ]]
 
 local Players = game:GetService("Players")
@@ -12,13 +12,6 @@ local function equipSword(character: Model, player: Player)
         return
     end
 
-    -- Attachment on the hand that the sword will chase
-    local handAttach = Instance.new("Attachment")
-    handAttach.Name = "WeaponGrip"
-    handAttach.Position = Vector3.new(0, -0.1, 0)
-    handAttach.Parent = hand
-
-    -- The sword stick — parented to character so the client can WaitForChild it
     local sword = Instance.new("Part")
     sword.Name = "Sword"
     sword.Size = Vector3.new(0.2, 2, 0.2)
@@ -26,12 +19,13 @@ local function equipSword(character: Model, player: Player)
     sword.Material = Enum.Material.SmoothPlastic
     sword.CanCollide = false
     sword.Anchored = false
-    sword.CastShadow = true
     sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character
 
-    -- Client owns the physics so swing response is immediate
-    sword:SetNetworkOwner(player)
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = hand
+    weld.Part1 = sword
+    weld.Parent = sword
 end
 
 Players.PlayerAdded:Connect(function(player)

@@ -1,12 +1,12 @@
 --[[
-    Mouse-driven weapon control — shoulder-pivot swing.
+    Mouse-driven arm swing via IKControl.
 
-    The swing ORIGIN is a fixed point at right-shoulder height in character space.
-    The tip sweeps a large arc around that origin, so movement feels driven by the
-    whole arm, not the wrist.
+    The sword is welded to the hand — it never moves independently.
+    Instead, an IKControl under the Humanoid bends the right arm so the
+    hand reaches the mouse-derived target position. The sword follows for free.
 
-    At rest (LMB up):   sword hangs straight down below the hand, rigid.
-    While swinging (LMB held): sword chases the mouse goal with physics lag (weight).
+    While LMB is held   → IK weight = 1, arm tracks mouse
+    While LMB released  → IK weight blends to 0, arm returns to idle animation
 ]]
 
 local Players = game:GetService("Players")
@@ -14,26 +14,22 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local SwingMath = require(game.ReplicatedStorage.Shared.Weapon.SwingMath)
-local WeaponConfig = require(game.ReplicatedStorage.Shared.Weapon.WeaponConfig)
 
 -- === Feel knobs ===
-local config = WeaponConfig.get("default")
-local SWING_MAX_FORCE = config.maxForce
-local SWING_MAX_TORQUE = config.maxTorque
-local SWING_RESPONSIVENESS = config.responsiveness
-
--- Right-shoulder origin in character (root) local space
--- This is the pivot — tip sweeps a large arc around here, like a real arm swing
-local SHOULDER_LOCAL = Vector3.new(1.2, 1.5, 0)
--- How far from the shoulder the sword CENTER sits (stud).
--- arm ≈ 2 studs, so center at 2.5 puts hilt near hand and tip 1.5 studs past hand
-local SWING_REACH = 2.5
+-- Right shoulder joint in character-local (root) space.
+-- Tune X (right) and Y (up) if the IK pivot feels off.
+local SHOULDER_LOCAL = Vector3.new(1.5, 1.5, 0)
+-- How far from the shoulder joint the hand should reach (arm length in studs).
+local ARM_LENGTH = 2.5
+-- How quickly IK weight blends in/out (0-1 lerp factor per frame).
+local WEIGHT_SPEED = 0.2
 
 local player = Players.LocalPlayer
 
--- Start in a natural ready position: sword forward and slightly down
+-- Start with arm in a natural ready position: forward and slightly down
 local swingState: SwingMath.SwingState = { yaw = 0, pitch = math.rad(-25) }
 local lmbDown = false
+local currentWeight = 0
 
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
@@ -41,7 +37,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         lmbDown = true
-        -- No state reset — sword stays where it is, no jump
     end
 end)
 
@@ -51,44 +46,46 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Build a CFrame whose +Y axis points along worldDir.
--- The sword Part's long axis is +Y, so this orients it as a blade.
-local function bladeCF(worldDir: Vector3): CFrame
-    -- CFrame.lookAt makes -Z face the target; rotating +90° on X turns -Z into +Y.
-    return CFrame.lookAt(Vector3.zero, worldDir) * CFrame.Angles(math.pi / 2, 0, 0)
-end
-
 local function onCharacter(character: Model)
-    local sword = character:WaitForChild("Sword", 10) :: BasePart?
-    if not sword then
-        warn("WeaponController: Sword not found")
+    character:WaitForChild("Sword", 10) -- wait for WeaponService to weld the sword
+
+    local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+    local rightUpperArm = character:WaitForChild("RightUpperArm", 5) :: BasePart?
+    local rightHand = character:WaitForChild("RightHand", 5) :: BasePart?
+    if not rightUpperArm or not rightHand then
         return
     end
-    local hand = character:WaitForChild("RightHand", 5) :: BasePart?
-    if not hand then
-        return
-    end
 
-    local swordAttach = Instance.new("Attachment")
-    swordAttach.Parent = sword
+    -- Invisible anchored target part that the hand will chase
+    local ikTarget = Instance.new("Part")
+    ikTarget.Name = "SwingTarget"
+    ikTarget.Size = Vector3.new(0.1, 0.1, 0.1)
+    ikTarget.Anchored = true
+    ikTarget.CanCollide = false
+    ikTarget.CanTouch = false
+    ikTarget.Transparency = 1
+    ikTarget.CFrame = rightHand.CFrame -- start at current hand position
+    ikTarget.Parent = workspace
 
-    local alignPos = Instance.new("AlignPosition")
-    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
-    alignPos.Attachment0 = swordAttach
-    alignPos.Position = sword.Position
-    alignPos.MaxForce = 40000
-    alignPos.Responsiveness = 200
-    alignPos.RigidityEnabled = true
-    alignPos.Parent = sword
+    -- IKControl bends RightUpperArm → RightHand chain toward ikTarget
+    local ikControl = Instance.new("IKControl")
+    ikControl.Name = "SwingIK"
+    ikControl.Type = Enum.IKControlType.Position
+    ikControl.ChainRoot = rightUpperArm
+    ikControl.EndEffector = rightHand
+    ikControl.Target = ikTarget
+    ikControl.SmoothingEnabled = true
+    ikControl.Weight = 0
+    ikControl.Parent = humanoid
 
-    local alignOri = Instance.new("AlignOrientation")
-    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-    alignOri.Attachment0 = swordAttach
-    alignOri.CFrame = bladeCF(Vector3.new(0, -1, 0))
-    alignOri.MaxTorque = 20000
-    alignOri.Responsiveness = 200
-    alignOri.RigidityEnabled = true
-    alignOri.Parent = sword
+    -- Clean up the target part when the character is removed
+    character.AncestryChanged:Connect(function()
+        if not character:IsDescendantOf(game) then
+            ikTarget:Destroy()
+        end
+    end)
+
+    currentWeight = 0
 
     RunService.RenderStepped:Connect(function()
         if not character:IsDescendantOf(game) then
@@ -102,39 +99,24 @@ local function onCharacter(character: Model)
         if lmbDown then
             local delta = UserInputService:GetMouseDelta()
             swingState = SwingMath.accumulate(swingState, delta.X, delta.Y)
-
-            local lx, ly, lz = SwingMath.localBladeDir(swingState)
-            local worldDir = root.CFrame:VectorToWorldSpace(Vector3.new(lx, ly, lz))
-
-            -- Sword center sits SWING_REACH studs from the shoulder along the blade direction
-            local shoulderWorld = root.CFrame:PointToWorldSpace(SHOULDER_LOCAL)
-            alignPos.Position = shoulderWorld + worldDir * SWING_REACH
-            alignPos.MaxForce = SWING_MAX_FORCE
-            alignPos.Responsiveness = SWING_RESPONSIVENESS
-            alignPos.RigidityEnabled = false
-
-            alignOri.CFrame = bladeCF(worldDir)
-            alignOri.MaxTorque = SWING_MAX_TORQUE
-            alignOri.Responsiveness = SWING_RESPONSIVENESS
-            alignOri.RigidityEnabled = false
         else
-            -- Rest: hang straight down below the hand, rigid
-            alignPos.Position = hand.Position + Vector3.new(0, -1, 0)
-            alignPos.MaxForce = 40000
-            alignPos.Responsiveness = 200
-            alignPos.RigidityEnabled = true
-
-            alignOri.CFrame = bladeCF(Vector3.new(0, -1, 0))
-            alignOri.MaxTorque = 20000
-            alignOri.Responsiveness = 200
-            alignOri.RigidityEnabled = true
-
-            -- Drift back toward ready position for next LMB press
+            -- Drift swingState back to ready position while arm relaxes
             swingState = {
                 yaw = swingState.yaw * 0.9,
                 pitch = swingState.pitch * 0.9 + math.rad(-25) * 0.1,
             }
         end
+
+        -- Compute hand target: shoulder + arm direction * arm length
+        local lx, ly, lz = SwingMath.localBladeDir(swingState)
+        local worldDir = root.CFrame:VectorToWorldSpace(Vector3.new(lx, ly, lz))
+        local shoulderWorld = root.CFrame:PointToWorldSpace(SHOULDER_LOCAL)
+        ikTarget.CFrame = CFrame.new(shoulderWorld + worldDir * ARM_LENGTH)
+
+        -- Blend IK weight in/out smoothly
+        local targetWeight = lmbDown and 1 or 0
+        currentWeight = currentWeight + (targetWeight - currentWeight) * WEIGHT_SPEED
+        ikControl.Weight = currentWeight
     end)
 end
 
