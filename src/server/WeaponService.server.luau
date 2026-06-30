@@ -1,6 +1,6 @@
 --[[
-    Spawns a gray stick and welds it to the player's right arm on spawn.
-    Simple weld for now — physics-based swing comes in Issue #5.
+    Spawns a gray stick for each player and parents it to their character.
+    No weld — the client WeaponController drives it via AlignPosition/Orientation.
 ]]
 
 local Players = game:GetService("Players")
@@ -12,28 +12,26 @@ local function equipSword(character: Model, player: Player)
         return
     end
 
-    local stick = Instance.new("Part")
-    stick.Name = "Sword"
-    stick.Size = Vector3.new(0.2, 2, 0.2)
-    stick.BrickColor = BrickColor.new("Medium stone grey")
-    stick.Material = Enum.Material.SmoothPlastic
-    stick.CanCollide = false
-    stick.Anchored = false
-    stick.Parent = workspace
+    -- Attachment on the hand that the sword will chase
+    local handAttach = Instance.new("Attachment")
+    handAttach.Name = "WeaponGrip"
+    handAttach.Position = Vector3.new(0, -0.1, 0)
+    handAttach.Parent = hand
 
-    -- Grip at the hand, blade extends downward
-    stick.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
+    -- The sword stick — parented to character so the client can WaitForChild it
+    local sword = Instance.new("Part")
+    sword.Name = "Sword"
+    sword.Size = Vector3.new(0.2, 2, 0.2)
+    sword.BrickColor = BrickColor.new("Medium stone grey")
+    sword.Material = Enum.Material.SmoothPlastic
+    sword.CanCollide = false
+    sword.Anchored = false
+    sword.CastShadow = true
+    sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
+    sword.Parent = character
 
-    local weld = Instance.new("WeldConstraint")
-    weld.Part0 = hand
-    weld.Part1 = stick
-    weld.Parent = stick
-
-    character.AncestryChanged:Connect(function()
-        if not character:IsDescendantOf(game) then
-            stick:Destroy()
-        end
-    end)
+    -- Client owns the physics so swing response is immediate
+    sword:SetNetworkOwner(player)
 end
 
 Players.PlayerAdded:Connect(function(player)

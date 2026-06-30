@@ -112,7 +112,11 @@ RunService:BindToRenderStep("HalfSwordCamera", Enum.RenderPriority.Camera.Value 
     end
 
     local delta = UserInputService:GetMouseDelta()
-    yaw, pitch = CameraMath.accumulate(yaw, pitch, delta.X, delta.Y, sensitivity)
+    -- Slow camera when swinging so aiming stays precise
+    local camScale = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and 0.35
+        or 1
+    yaw, pitch =
+        CameraMath.accumulate(yaw, pitch, delta.X * camScale, delta.Y * camScale, sensitivity)
 
     -- Publish yaw so MovementController can rotate the character to match.
     CameraState.yaw = yaw
