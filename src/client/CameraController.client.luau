@@ -53,12 +53,20 @@ UserInputService.InputBegan:Connect(function(input, processed)
         if not character then
             return
         end
-        -- R6 parts to keep visible in first-person (arms and legs, not head/torso)
+        -- Parts to keep visible in first-person (arms and legs, not head/torso)
         local KEEP_VISIBLE = {
-            ["Left Arm"] = true,
-            ["Right Arm"] = true,
-            ["Left Leg"] = true,
-            ["Right Leg"] = true,
+            LeftHand = true,
+            RightHand = true,
+            LeftLowerArm = true,
+            RightLowerArm = true,
+            LeftUpperArm = true,
+            RightUpperArm = true,
+            LeftFoot = true,
+            RightFoot = true,
+            LeftLowerLeg = true,
+            RightLowerLeg = true,
+            LeftUpperLeg = true,
+            RightUpperLeg = true,
         }
         local inFirst = mode:isFirstPerson()
         for _, part in character:GetDescendants() do

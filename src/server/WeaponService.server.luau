@@ -6,9 +6,9 @@
 local Players = game:GetService("Players")
 
 local function equipSword(character: Model, player: Player)
-    local arm = character:WaitForChild("Right Arm", 5) :: BasePart
-    if not arm then
-        warn("WeaponService: Right Arm not found for", player.Name)
+    local hand = character:WaitForChild("RightHand", 5) :: BasePart
+    if not hand then
+        warn("WeaponService: RightHand not found for", player.Name)
         return
     end
 
@@ -21,11 +21,11 @@ local function equipSword(character: Model, player: Player)
     stick.Anchored = false
     stick.Parent = workspace
 
-    -- Place grip at wrist (bottom of R6 arm, arm is 2 studs tall so offset -1.9)
-    stick.CFrame = arm.CFrame * CFrame.new(0, -1.9, 0)
+    -- Grip at the hand, blade extends downward
+    stick.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
 
     local weld = Instance.new("WeldConstraint")
-    weld.Part0 = arm
+    weld.Part0 = hand
     weld.Part1 = stick
     weld.Parent = stick
 
