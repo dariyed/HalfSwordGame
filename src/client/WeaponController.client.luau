@@ -1,14 +1,12 @@
 --[[
-    Mouse-driven weapon control.
+    Mouse-driven weapon control — shoulder-pivot swing.
 
-    The hilt is pinned to the hand at all times via a rigid TwoAttachment
-    AlignPosition. Only the blade direction changes — AlignOrientation swings
-    the +Y axis of the sword to point where the mouse says.
+    The swing ORIGIN is a fixed point at right-shoulder height in character space.
+    The tip sweeps a large arc around that origin, so movement feels driven by the
+    whole arm, not the wrist.
 
-    At rest (LMB up):   blade points down-forward along the arm.
-    While swinging (LMB held): mouse delta rotates the tip; hilt stays in hand.
-
-    Feel knobs at the top.
+    At rest (LMB up):   sword hangs straight down below the hand, rigid.
+    While swinging (LMB held): sword chases the mouse goal with physics lag (weight).
 ]]
 
 local Players = game:GetService("Players")
@@ -20,18 +18,21 @@ local WeaponConfig = require(game.ReplicatedStorage.Shared.Weapon.WeaponConfig)
 
 -- === Feel knobs ===
 local config = WeaponConfig.get("default")
+local SWING_MAX_FORCE = config.maxForce
 local SWING_MAX_TORQUE = config.maxTorque
 local SWING_RESPONSIVENESS = config.responsiveness
-local REST_MAX_TORQUE = 20000
-local REST_RESPONSIVENESS = 50
 
--- Sword geometry: Part.Size.Y = 2, so half-length = 1
-local SWORD_HALF = 1
+-- Right-shoulder origin in character (root) local space
+-- This is the pivot — tip sweeps a large arc around here, like a real arm swing
+local SHOULDER_LOCAL = Vector3.new(1.2, 1.5, 0)
+-- How far from the shoulder the sword CENTER sits (stud).
+-- arm ≈ 2 studs, so center at 2.5 puts hilt near hand and tip 1.5 studs past hand
+local SWING_REACH = 2.5
 
 local player = Players.LocalPlayer
 
--- Start with blade pointing forward-down so there's no jump on first LMB
-local swingState: SwingMath.SwingState = { yaw = 0, pitch = math.rad(-50) }
+-- Start in a natural ready position: sword forward and slightly down
+local swingState: SwingMath.SwingState = { yaw = 0, pitch = math.rad(-25) }
 local lmbDown = false
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -40,7 +41,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         lmbDown = true
-        -- Do NOT reset swingState here — sword stays where it is, no jump
+        -- No state reset — sword stays where it is, no jump
     end
 end)
 
@@ -50,52 +51,44 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
+-- Build a CFrame whose +Y axis points along worldDir.
+-- The sword Part's long axis is +Y, so this orients it as a blade.
+local function bladeCF(worldDir: Vector3): CFrame
+    -- CFrame.lookAt makes -Z face the target; rotating +90° on X turns -Z into +Y.
+    return CFrame.lookAt(Vector3.zero, worldDir) * CFrame.Angles(math.pi / 2, 0, 0)
+end
+
 local function onCharacter(character: Model)
     local sword = character:WaitForChild("Sword", 10) :: BasePart?
     if not sword then
-        warn("WeaponController: Sword not found in character")
+        warn("WeaponController: Sword not found")
         return
     end
-
     local hand = character:WaitForChild("RightHand", 5) :: BasePart?
     if not hand then
         return
     end
 
-    local handGrip = hand:WaitForChild("WeaponGrip", 5) :: Attachment?
-    if not handGrip then
-        return
-    end
+    local swordAttach = Instance.new("Attachment")
+    swordAttach.Parent = sword
 
-    -- Attachment at the hilt (top end of sword, -Y from centre when +Y = tip direction)
-    local hiltAttach = Instance.new("Attachment")
-    hiltAttach.Position = Vector3.new(0, -SWORD_HALF, 0)
-    hiltAttach.Parent = sword
-
-    -- Rigid position: hilt always at hand grip, zero lag
     local alignPos = Instance.new("AlignPosition")
-    alignPos.Mode = Enum.PositionAlignmentMode.TwoAttachment
-    alignPos.Attachment0 = hiltAttach
-    alignPos.Attachment1 = handGrip
+    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+    alignPos.Attachment0 = swordAttach
+    alignPos.Position = sword.Position
     alignPos.MaxForce = 40000
     alignPos.Responsiveness = 200
     alignPos.RigidityEnabled = true
     alignPos.Parent = sword
 
-    -- Orientation: swings the blade direction
     local alignOri = Instance.new("AlignOrientation")
     alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-    alignOri.Attachment0 = hiltAttach
-    alignOri.MaxTorque = REST_MAX_TORQUE
-    alignOri.Responsiveness = REST_RESPONSIVENESS
-    alignOri.RigidityEnabled = false
+    alignOri.Attachment0 = swordAttach
+    alignOri.CFrame = bladeCF(Vector3.new(0, -1, 0))
+    alignOri.MaxTorque = 20000
+    alignOri.Responsiveness = 200
+    alignOri.RigidityEnabled = true
     alignOri.Parent = sword
-
-    -- Build orientation CFrame: make sword's +Y axis point along worldDir
-    local function bladeCF(worldDir: Vector3): CFrame
-        -- CFrame.lookAt makes -Z point at target; rotating pi/2 on X turns -Z into +Y
-        return CFrame.lookAt(Vector3.zero, worldDir) * CFrame.Angles(math.pi / 2, 0, 0)
-    end
 
     RunService.RenderStepped:Connect(function()
         if not character:IsDescendantOf(game) then
@@ -113,20 +106,33 @@ local function onCharacter(character: Model)
             local lx, ly, lz = SwingMath.localBladeDir(swingState)
             local worldDir = root.CFrame:VectorToWorldSpace(Vector3.new(lx, ly, lz))
 
+            -- Sword center sits SWING_REACH studs from the shoulder along the blade direction
+            local shoulderWorld = root.CFrame:PointToWorldSpace(SHOULDER_LOCAL)
+            alignPos.Position = shoulderWorld + worldDir * SWING_REACH
+            alignPos.MaxForce = SWING_MAX_FORCE
+            alignPos.Responsiveness = SWING_RESPONSIVENESS
+            alignPos.RigidityEnabled = false
+
             alignOri.CFrame = bladeCF(worldDir)
             alignOri.MaxTorque = SWING_MAX_TORQUE
             alignOri.Responsiveness = SWING_RESPONSIVENESS
+            alignOri.RigidityEnabled = false
         else
-            -- Rest: blade follows the hand's downward direction
-            local restDir = -hand.CFrame.YVector
-            alignOri.CFrame = bladeCF(restDir)
-            alignOri.MaxTorque = REST_MAX_TORQUE
-            alignOri.Responsiveness = REST_RESPONSIVENESS
+            -- Rest: hang straight down below the hand, rigid
+            alignPos.Position = hand.Position + Vector3.new(0, -1, 0)
+            alignPos.MaxForce = 40000
+            alignPos.Responsiveness = 200
+            alignPos.RigidityEnabled = true
 
-            -- Drift swingState back toward the rest angle so next swing starts naturally
+            alignOri.CFrame = bladeCF(Vector3.new(0, -1, 0))
+            alignOri.MaxTorque = 20000
+            alignOri.Responsiveness = 200
+            alignOri.RigidityEnabled = true
+
+            -- Drift back toward ready position for next LMB press
             swingState = {
                 yaw = swingState.yaw * 0.9,
-                pitch = swingState.pitch * 0.9 + math.rad(-50) * 0.1,
+                pitch = swingState.pitch * 0.9 + math.rad(-25) * 0.1,
             }
         end
     end)
