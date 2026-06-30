@@ -43,7 +43,8 @@ function DodgeMachine.new()
 end
 
 --[[
-    sideBlocked: when true, side dodges cannot trigger (pass keys.w or keys.s).
+    sideBlocked: blocks A↔D dodge (pass: not shift, or W/S held).
+    axisBlocked: blocks W↔S dodge (pass: not shift).
     Returns true if any dodge is active.
 ]]
 function DodgeMachine:update(
@@ -52,7 +53,8 @@ function DodgeMachine:update(
     forwardHeld: boolean,
     backwardHeld: boolean,
     dt: number,
-    sideBlocked: boolean?
+    sideBlocked: boolean?,
+    axisBlocked: boolean?
 ): boolean
     self._time += dt
 
@@ -92,7 +94,7 @@ function DodgeMachine:update(
     end
 
     -- Axis dodge (W↔S), separate cooldown
-    if self._axisCooldownTimer <= 0 then
+    if self._axisCooldownTimer <= 0 and not axisBlocked then
         if backwardHeld and not self._prevBackward then
             if self._time - self._lastForwardRelease <= SWITCH_WINDOW then
                 self._axisDodgeTimer = AXIS_DODGE_DURATION

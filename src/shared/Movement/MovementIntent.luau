@@ -3,7 +3,7 @@
     No Roblox Instances — safe to test headlessly under Lune.
 ]]
 
-local SPRINT_SPEED_MULTIPLIER = 1.25 -- Shift+W: slightly faster than walking
+local SPRINT_SPEED_MULTIPLIER = 1.1 -- Shift+W: slightly faster than walking
 local STRAFE_SPEED_MULTIPLIER = 0.7 -- A/D only: slower sideways movement
 local BACKWARD_SPEED_MULTIPLIER = 0.6 -- S only: slowest, backing away
 

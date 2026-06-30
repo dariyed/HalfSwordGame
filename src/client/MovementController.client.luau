@@ -87,9 +87,17 @@ RunService.Heartbeat:Connect(function(dt)
 
     stanceMachine:update(keys.shift)
     local intent = MovementIntent.compute(keys)
-    -- Side dodge blocked while W or S held (prevents using strafe to gain forward/backward speed).
-    -- Axis dodge (W↔S) uses a separate cooldown and longer duration.
-    local dodging = dodgeMachine:update(keys.a, keys.d, keys.w, keys.s, dt, keys.w or keys.s)
+    -- Both dashes require Shift. Side dash also blocked while W or S held.
+    local noShift = not keys.shift
+    local dodging = dodgeMachine:update(
+        keys.a,
+        keys.d,
+        keys.w,
+        keys.s,
+        dt,
+        noShift or keys.w or keys.s, -- side blocked without shift or during fwd/bwd
+        noShift -- axis blocked without shift
+    )
 
     -- Smooth the speed multiplier for weighty acceleration/deceleration feel
     local moving = math.abs(intent.direction.x) + math.abs(intent.direction.z) > 0
