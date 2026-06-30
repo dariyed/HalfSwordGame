@@ -122,11 +122,17 @@ RunService.Heartbeat:Connect(function(dt)
     -- intent.direction.z = -1 for W (forward), so negate it to align with camera forward
     local targetDir = camForward * -intent.direction.z + camRight * intent.direction.x
 
-    -- Momentum: direction changes are slower at higher speed, simulating inertia.
-    -- Faster you were going → lower turn rate → W→S takes longer to kick in.
-    local turnRate = TURN_RATE / (1 + currentSpeedMul * MOMENTUM_FACTOR)
     if targetDir.Magnitude > 0.001 then
-        currentVelDir = currentVelDir:Lerp(targetDir.Unit, math.min(dt * turnRate, 1))
+        if dodging then
+            -- Snap to the new direction so the dash always goes where the key points,
+            -- not where momentum was carrying the character before the switch.
+            currentVelDir = targetDir.Unit
+        else
+            -- Momentum: direction changes are slower at higher speed, simulating inertia.
+            -- Faster you were going → lower turn rate → W→S takes longer to kick in.
+            local turnRate = TURN_RATE / (1 + currentSpeedMul * MOMENTUM_FACTOR)
+            currentVelDir = currentVelDir:Lerp(targetDir.Unit, math.min(dt * turnRate, 1))
+        end
     else
         -- No input: snap direction to zero so deceleration is clean
         currentVelDir = Vector3.new(0, 0, 0)
