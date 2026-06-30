@@ -5,14 +5,16 @@
 **Status:** tests GREEN, retro logged, all commits pushed
 
 **Where we are:**
-Sword drop is working — client-side Touched detection fires DropSword RemoteEvent, server disables weld, arms return to idle. The slim body feature (`CharacterSetup.server.luau`) was written and pushed but Dariy confirmed **the body proportions do not visually change in-game** — needs investigation next session.
+Both features written and pushed but **neither is working in-game yet**:
+- **Sword drop** — Dariy confirms sword does not drop. Likely cause: `sword.Touched` may not fire on the client either, because the sword (CanCollide=true) welded to the hand might be getting its network ownership overridden to the server by Roblox (weld Part0 is a character part, Part1 is a non-character part — ownership can split). Needs Output window investigation.
+- **Body proportions** — character looks the same. `GetAppliedDescription` / `ApplyDescription` approach not working.
 
 **Next step (start here):**
-Debug why `humanoid:GetAppliedDescription()` + `humanoid:ApplyDescription()` isn't reshaping the character. Two likely causes:
-1. `GetAppliedDescription()` might not exist in this Studio version (wrap in pcall — check the Output window for the "GetAppliedDescription failed" warn).
-2. The character might be using the default R15 block rig which has no meshes to deform — `BodyTypeScale` only works with Rthro-style mesh characters. Fix: switch to `player:LoadCharacterWithHumanoidDescription(desc)` instead of patching after spawn, using `Players:GetHumanoidDescriptionFromUserId(player.UserId)` to get the base appearance first.
+1. Open Studio Output window and play-test. Look for any errors from WeaponController or CharacterSetup.
+2. For the drop: add a quick `print("Touched: " .. hit.Name)` inside `sword.Touched` in WeaponController to confirm if Touched is firing at all. If it never prints, the issue is network ownership — fix by adding `sword:SetNetworkOwner(player)` in WeaponService after creating the sword, so the client definitely owns it.
+3. For the body: check Output for `"CharacterSetup: GetAppliedDescription failed"`. If present, switch to `player:LoadCharacterWithHumanoidDescription(Players:GetHumanoidDescriptionFromUserId(player.UserId))` with `Players.CharacterAutoLoads = false`.
 
 **Watch out for:**
-- `LoadCharacterWithHumanoidDescription` requires `Players.CharacterAutoLoads = false` — don't forget to handle respawn manually (connect `Humanoid.Died` → wait `Players.RespawnTime` → reload).
-- Check the Output window in Studio for the "CharacterSetup: GetAppliedDescription failed" warning — if it shows, that confirms the API doesn't exist and we need the LoadCharacterWithHumanoidDescription path.
-- Drop knobs in WeaponController.client.luau: `INSTANT_DROP_SPEED = 25`, `SUSTAIN_TIME = 1.5` — Dariy hasn't tuned these yet.
+- `SetNetworkOwner` can only be called on the server and only on unanchored parts — the sword qualifies.
+- `LoadCharacterWithHumanoidDescription` requires `Players.CharacterAutoLoads = false` — must handle respawn manually.
+- WeaponEvents/DropSword RemoteEvent is created by WeaponService at startup — if WeaponController's `WaitForChild("WeaponEvents")` times out, there'll be a silent nil error. Check Output for that too.
