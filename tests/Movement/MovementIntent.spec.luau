@@ -40,10 +40,9 @@ return {
     end,
 
     ["D → right (x = +1)"] = function()
-        -- A+D cancel to zero; alone D gives +1
-        local result2 =
+        local result =
             MovementIntent.compute({ w = false, a = false, s = false, d = true, shift = false })
-        assert(approxEq(result2.direction.x, 1), "expected x=1")
+        assert(approxEq(result.direction.x, 1), "expected x=1")
     end,
 
     ["W+D → normalised diagonal (length = 1)"] = function()
@@ -71,47 +70,83 @@ return {
         )
     end,
 
-    -- Speed multiplier
+    -- Directional speed multipliers
 
-    ["no shift → full speed multiplier (1.0)"] = function()
+    ["W → full speed (1.0)"] = function()
         local result =
             MovementIntent.compute({ w = true, a = false, s = false, d = false, shift = false })
+        assert(approxEq(result.speedMultiplier, 1.0), "forward must be 1.0")
+    end,
+
+    ["S → backward speed (< 1.0)"] = function()
+        local result =
+            MovementIntent.compute({ w = false, a = false, s = true, d = false, shift = false })
+        assert(result.speedMultiplier < 1.0, "backward must be slower than forward")
         assert(
-            approxEq(result.speedMultiplier, 1.0),
-            "expected 1.0, got " .. result.speedMultiplier
+            approxEq(result.speedMultiplier, MovementIntent.BACKWARD_SPEED_MULTIPLIER),
+            "expected BACKWARD_SPEED_MULTIPLIER"
         )
     end,
 
-    ["shift+W → sprint speed multiplier (> 1.0)"] = function()
+    ["A only → strafe speed (< 1.0)"] = function()
+        local result =
+            MovementIntent.compute({ w = false, a = true, s = false, d = false, shift = false })
+        assert(result.speedMultiplier < 1.0, "strafe must be slower than forward")
+        assert(
+            approxEq(result.speedMultiplier, MovementIntent.STRAFE_SPEED_MULTIPLIER),
+            "expected STRAFE_SPEED_MULTIPLIER"
+        )
+    end,
+
+    ["D only → strafe speed (< 1.0)"] = function()
+        local result =
+            MovementIntent.compute({ w = false, a = false, s = false, d = true, shift = false })
+        assert(
+            approxEq(result.speedMultiplier, MovementIntent.STRAFE_SPEED_MULTIPLIER),
+            "expected STRAFE_SPEED_MULTIPLIER"
+        )
+    end,
+
+    ["forward faster than strafe"] = function()
+        local fwd =
+            MovementIntent.compute({ w = true, a = false, s = false, d = false, shift = false })
+        local str =
+            MovementIntent.compute({ w = false, a = true, s = false, d = false, shift = false })
+        assert(fwd.speedMultiplier > str.speedMultiplier, "forward must be faster than strafe")
+    end,
+
+    ["strafe faster than backward"] = function()
+        local str =
+            MovementIntent.compute({ w = false, a = true, s = false, d = false, shift = false })
+        local bwd =
+            MovementIntent.compute({ w = false, a = false, s = true, d = false, shift = false })
+        assert(str.speedMultiplier > bwd.speedMultiplier, "strafe must be faster than backward")
+    end,
+
+    -- Sprint
+
+    ["shift+W → sprint speed (> 1.0)"] = function()
         local result =
             MovementIntent.compute({ w = true, a = false, s = false, d = false, shift = true })
-        assert(result.speedMultiplier > 1.0, "sprint speed must be greater than 1.0")
+        assert(result.speedMultiplier > 1.0, "sprint must be faster than walk")
         assert(
             approxEq(result.speedMultiplier, MovementIntent.SPRINT_SPEED_MULTIPLIER),
             "expected SPRINT_SPEED_MULTIPLIER"
         )
     end,
 
-    ["shift+W+A → sprint (W held with sideways)"] = function()
+    ["shift+W+A → sprint (W held with strafe)"] = function()
         local result =
             MovementIntent.compute({ w = true, a = true, s = false, d = false, shift = true })
         assert(result.speedMultiplier > 1.0, "shift+W+A should sprint")
     end,
 
-    ["shift without W → no sprint (normal speed)"] = function()
+    ["shift without W → no sprint"] = function()
         local result =
             MovementIntent.compute({ w = false, a = true, s = false, d = false, shift = true })
-        assert(approxEq(result.speedMultiplier, 1.0), "shift alone without W must not sprint")
-    end,
-
-    ["diagonal speed equals straight speed (no faster-diagonal bug)"] = function()
-        local straight =
-            MovementIntent.compute({ w = true, a = false, s = false, d = false, shift = false })
-        local diagonal =
-            MovementIntent.compute({ w = true, a = false, s = false, d = true, shift = false })
         assert(
-            approxEq(straight.speedMultiplier, diagonal.speedMultiplier),
-            "diagonal must not be faster than straight"
+            approxEq(result.speedMultiplier, MovementIntent.STRAFE_SPEED_MULTIPLIER),
+            "strafe speed when shift+A"
         )
     end,
 
