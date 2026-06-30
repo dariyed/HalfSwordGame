@@ -90,10 +90,10 @@ local function onCharacter(character: Model)
     ik.ChainRoot = rightUpperArm
     ik.EndEffector = rightHand
     ik.Target = t
-    ik.SmoothingEnabled = false -- we smooth the target position ourselves below
     ik.Weight = 0
     ik.Parent = humanoid
     ikControl = ik
+    print("WeaponController: IKControl ready — hold LMB to swing")
 
     currentWeight = 0
 
