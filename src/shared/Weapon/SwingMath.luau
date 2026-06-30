@@ -18,8 +18,10 @@ export type SwingState = {
 
 export type SwingDirection = "left" | "right" | "up" | "down" | "none"
 
--- Arm reach limits — no 360 spin; matches a realistic sword arc
-local MIN_YAW = math.rad(-110)
+-- Arm reach limits — no 360 spin; matches a realistic sword arc.
+-- MIN_YAW is intentionally narrower than MAX_YAW: the right arm cannot reach
+-- far past the body centerline without the IK solver flipping the elbow.
+local MIN_YAW = math.rad(-70)
 local MAX_YAW = math.rad(110)
 local MIN_PITCH = math.rad(-70)
 local MAX_PITCH = math.rad(70)
