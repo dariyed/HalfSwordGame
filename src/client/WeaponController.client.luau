@@ -15,6 +15,10 @@ local UserInputService = game:GetService("UserInputService")
 
 local SwingMath = require(game.ReplicatedStorage.Shared.Weapon.SwingMath)
 
+-- RemoteEvent: client fires this to tell the server to disable the sword weld
+local dropSwordRemote =
+    game.ReplicatedStorage:WaitForChild("WeaponEvents"):WaitForChild("DropSword") :: RemoteEvent
+
 -- === Feel knobs ===
 local WEIGHT_SPEED = 0.15 -- lerp factor per frame: arm engage / release speed
 local ARM_REACH = 1.8 -- studs from right shoulder to IK target (arm extended)
@@ -66,9 +70,11 @@ local function onCharacter(character: Model)
         return
     end
 
-    -- Watch for the server dropping the sword (weld disabled on impact/pressure).
-    -- When that happens, zero the IK weights so both arms return to idle animation.
+    -- swordDropped: set true by client detection OR when server confirms weld is off.
+    -- Once true, the render loop zeros IK weights and stops.
     local swordDropped = false
+
+    -- Fallback: watch for the server disabling the weld (e.g. future server-side drop logic)
     local swordWeld = sword:WaitForChild("SwordWeld", 5) :: WeldConstraint?
     if swordWeld then
         swordWeld:GetPropertyChangedSignal("Enabled"):Connect(function()
@@ -77,6 +83,58 @@ local function onCharacter(character: Model)
             end
         end)
     end
+
+    -- Drop detection runs on the CLIENT because Touched fires where physics are simulated.
+    -- The character assembly is client-network-owned, so this is the right place.
+    local INSTANT_DROP_SPEED = 25 -- studs/s: hit part velocity that instant-drops the sword
+    local SUSTAIN_TIME = 1.5 -- seconds of continuous contact before a pressure-drop
+    local contacts: { [BasePart]: boolean } = {}
+    local contactTimer = 0
+
+    local function triggerDrop()
+        if swordDropped then
+            return
+        end
+        swordDropped = true
+        dropSwordRemote:FireServer()
+    end
+
+    local touchConn: RBXScriptConnection
+    touchConn = sword.Touched:Connect(function(hit)
+        if swordDropped then
+            return
+        end
+        if hit:IsDescendantOf(character) then
+            return
+        end
+        if hit.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
+            triggerDrop()
+            return
+        end
+        contacts[hit] = true
+    end)
+
+    sword.TouchEnded:Connect(function(hit)
+        contacts[hit] = nil
+    end)
+
+    local contactConn: RBXScriptConnection
+    contactConn = RunService.Heartbeat:Connect(function(dt)
+        if swordDropped or not character:IsDescendantOf(game) then
+            touchConn:Disconnect()
+            contactConn:Disconnect()
+            contacts = {}
+            return
+        end
+        if next(contacts) ~= nil then
+            contactTimer += dt
+            if contactTimer >= SUSTAIN_TIME then
+                triggerDrop()
+            end
+        else
+            contactTimer = 0
+        end
+    end)
 
     -- Clean up from any previous life
     if ikTarget then

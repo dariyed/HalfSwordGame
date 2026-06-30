@@ -3,20 +3,28 @@
     WeaponController (LocalScript) creates a local IKControl that swings the arm;
     the sword follows for free because of the WeldConstraint.
 
-    Drop mechanic — uses Touched / TouchEnded (requires CanCollide = true):
-      • Fast-moving hit (AssemblyLinearVelocity ≥ INSTANT_DROP_SPEED): instant drop.
-      • Sustained contact (sword pressed against something ≥ SUSTAIN_TIME s): drop.
-    The WeldConstraint prevents the sword from being physically displaced while held,
-    so CanCollide = true only causes collisions to be detected, not to move the sword.
-    On drop the weld is disabled; the sword then falls as a free physics object.
+    Drop mechanic:
+    Roblox fires Touched events on the machine that SIMULATES the physics.
+    The character assembly (including the welded sword) is client-network-owned,
+    so Touched fires on the CLIENT, not the server. WeaponController handles the
+    collision detection and fires DropSword here when a drop is triggered.
+    This script just disables the weld in response.
 ]]
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- === Drop knobs ===
-local INSTANT_DROP_SPEED = 25 -- studs/s: hit part velocity that triggers an instant drop
-local SUSTAIN_TIME = 1.5 -- seconds of continuous contact before a pressure-drop
+-- RemoteEvent so the client can signal a drop to the server
+local weaponEvents = Instance.new("Folder")
+weaponEvents.Name = "WeaponEvents"
+weaponEvents.Parent = ReplicatedStorage
+
+local dropSwordRemote = Instance.new("RemoteEvent")
+dropSwordRemote.Name = "DropSword"
+dropSwordRemote.Parent = weaponEvents
+
+-- One weld per player so OnServerEvent can find and disable it
+local swordWelds: { [Player]: WeldConstraint } = {}
 
 local function equipSword(character: Model, player: Player)
     local hand = character:WaitForChild("RightHand", 5) :: BasePart?
@@ -30,67 +38,27 @@ local function equipSword(character: Model, player: Player)
     sword.Size = Vector3.new(0.2, 2, 0.2)
     sword.BrickColor = BrickColor.new("Medium stone grey")
     sword.Material = Enum.Material.SmoothPlastic
-    sword.CanCollide = true -- needed for Touched events; weld stops it being displaced
+    sword.CanCollide = true -- CanCollide=true so Touched fires on the client
     sword.Anchored = false
     sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character
 
     local weld = Instance.new("WeldConstraint")
-    weld.Name = "SwordWeld" -- named so WeaponController can WaitForChild it
+    weld.Name = "SwordWeld"
     weld.Part0 = hand
     weld.Part1 = sword
     weld.Parent = sword
 
-    local function dropSword()
-        if not weld.Enabled then
-            return
-        end
+    swordWelds[player] = weld
+end
+
+-- Client fires this when it detects a drop condition (fast hit or sustained pressure)
+dropSwordRemote.OnServerEvent:Connect(function(player: Player)
+    local weld = swordWelds[player]
+    if weld and weld.Enabled then
         weld.Enabled = false
     end
-
-    -- Track which non-character parts are currently touching the sword
-    local contacts: { [BasePart]: boolean } = {}
-    local contactTimer = 0
-
-    sword.Touched:Connect(function(hit)
-        if not weld.Enabled then
-            return
-        end
-        if hit:IsDescendantOf(character) then
-            return
-        end
-
-        -- Instant drop: something fast struck the sword
-        if hit.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
-            dropSword()
-            return
-        end
-
-        -- Start tracking contact for the sustained-pressure drop
-        contacts[hit] = true
-    end)
-
-    sword.TouchEnded:Connect(function(hit)
-        contacts[hit] = nil
-    end)
-
-    local conn: RBXScriptConnection
-    conn = RunService.Heartbeat:Connect(function(dt)
-        if not weld.Enabled or not character:IsDescendantOf(game) then
-            conn:Disconnect()
-            return
-        end
-
-        if next(contacts) ~= nil then
-            contactTimer += dt
-            if contactTimer >= SUSTAIN_TIME then
-                dropSword()
-            end
-        else
-            contactTimer = 0
-        end
-    end)
-end
+end)
 
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function(character)
@@ -98,6 +66,13 @@ Players.PlayerAdded:Connect(function(player)
             equipSword(character, player)
         end)
     end)
+    player.CharacterRemoving:Connect(function()
+        swordWelds[player] = nil
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    swordWelds[player] = nil
 end)
 
 for _, player in Players:GetPlayers() do
