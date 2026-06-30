@@ -1,13 +1,10 @@
 --[[
-    Mouse-driven arm swing via IKControl.
+    Mouse-driven arm swing via IKControl — two-handed grip.
 
-    Motor6D.Transform is overridden by Roblox's animation engine on every physics
-    step — scripts cannot win that race. IKControl is the correct hook: it runs
-    INSIDE the Animator's IK pass, so its result is the final joint pose.
-
-    Each frame we move an anchored Part ("SwingTarget") to where the right hand
-    should be for the current mouse angle, then let IKControl pull the arm there.
-    Weight blends smoothly 0 → 1 when LMB is held and back to 0 when released.
+    Two IKControls share the same weight blend:
+      • Right arm: moves toward the mouse-driven swing target.
+      • Left arm:  grips the sword handle GRIP_OFFSET studs below the right hand.
+    When LMB is released both arms return to the idle animation.
 
     The sword is welded to RightHand by WeaponService and follows for free.
 ]]
@@ -19,8 +16,9 @@ local UserInputService = game:GetService("UserInputService")
 local SwingMath = require(game.ReplicatedStorage.Shared.Weapon.SwingMath)
 
 -- === Feel knobs ===
-local WEIGHT_SPEED = 0.15 -- lerp factor per frame: how fast the arm engages / releases
-local ARM_REACH = 1.8 -- studs from shoulder to the IK target (arm roughly extended)
+local WEIGHT_SPEED = 0.15 -- lerp factor per frame: arm engage / release speed
+local ARM_REACH = 1.8 -- studs from right shoulder to IK target (arm extended)
+local GRIP_OFFSET = 0.7 -- studs below right hand where the left hand grips
 
 local player = Players.LocalPlayer
 
@@ -28,9 +26,11 @@ local swingState: SwingMath.SwingState = { yaw = 0, pitch = math.rad(-25) }
 local lmbDown = false
 local currentWeight = 0
 
--- Module-level refs so we can clean them up on respawn
+-- Module-level refs for cleanup on respawn
 local ikTarget: Part? = nil
+local ikTarget2: Part? = nil
 local ikControl: IKControl? = nil
+local ikControl2: IKControl? = nil
 
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
@@ -48,29 +48,35 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 local function onCharacter(character: Model)
-    -- Sword presence confirms WeaponService has finished equipping
     character:WaitForChild("Sword", 10)
 
     local humanoid = character:WaitForChild("Humanoid") :: Humanoid
     local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
     local rightUpperArm = character:WaitForChild("RightUpperArm", 10) :: BasePart?
     local rightHand = character:WaitForChild("RightHand", 10) :: BasePart?
+    local leftUpperArm = character:WaitForChild("LeftUpperArm", 10) :: BasePart?
+    local leftHand = character:WaitForChild("LeftHand", 10) :: BasePart?
 
-    if not root or not rightUpperArm or not rightHand then
-        warn("WeaponController: arm parts not found — arm swing disabled")
+    if not root or not rightUpperArm or not rightHand or not leftUpperArm or not leftHand then
+        warn("WeaponController: arm parts not found — swing disabled")
         return
     end
 
-    -- Remove objects from any previous character life
+    -- Clean up from any previous life
     if ikTarget then
         ikTarget:Destroy()
+    end
+    if ikTarget2 then
+        ikTarget2:Destroy()
     end
     if ikControl then
         ikControl:Destroy()
     end
+    if ikControl2 then
+        ikControl2:Destroy()
+    end
 
-    -- Anchored local part that we move each frame to steer the arm.
-    -- Parented to workspace (client-only; server never sees it).
+    -- Right-arm target: moves in the mouse-driven swing direction
     local t = Instance.new("Part")
     t.Name = "SwingTarget"
     t.Size = Vector3.new(0.1, 0.1, 0.1)
@@ -82,8 +88,6 @@ local function onCharacter(character: Model)
     t.Parent = workspace
     ikTarget = t
 
-    -- IKControl parented to Humanoid — the Animator solves RightUpperArm → RightHand
-    -- so that RightHand arrives at the SwingTarget position.
     local ik = Instance.new("IKControl")
     ik.Name = "SwingIK"
     ik.Type = Enum.IKControlType.Position
@@ -94,6 +98,28 @@ local function onCharacter(character: Model)
     ik.Parent = humanoid
     ikControl = ik
 
+    -- Left-arm target: tracks a fixed grip point on the sword handle
+    local t2 = Instance.new("Part")
+    t2.Name = "SwingTarget2"
+    t2.Size = Vector3.new(0.1, 0.1, 0.1)
+    t2.Anchored = true
+    t2.CanCollide = false
+    t2.CanTouch = false
+    t2.Transparency = 1
+    t2.CFrame = leftHand.CFrame
+    t2.Parent = workspace
+    ikTarget2 = t2
+
+    local ik2 = Instance.new("IKControl")
+    ik2.Name = "SwingIK2"
+    ik2.Type = Enum.IKControlType.Position
+    ik2.ChainRoot = leftUpperArm
+    ik2.EndEffector = leftHand
+    ik2.Target = t2
+    ik2.Weight = 0
+    ik2.Parent = humanoid
+    ikControl2 = ik2
+
     currentWeight = 0
 
     RunService:BindToRenderStep("WeaponSwing", Enum.RenderPriority.Last.Value, function()
@@ -102,7 +128,7 @@ local function onCharacter(character: Model)
             return
         end
 
-        -- Accumulate mouse delta when swinging; drift back to rest when not
+        -- Accumulate mouse into swing state; drift to rest when LMB released
         if lmbDown then
             local delta = UserInputService:GetMouseDelta()
             swingState = SwingMath.accumulate(swingState, delta.X, delta.Y)
@@ -113,23 +139,24 @@ local function onCharacter(character: Model)
             }
         end
 
-        -- Smooth weight: 0 = pure animation, 1 = pure IK swing
+        -- Shared weight: both IKControls engage / release together
         local targetWeight = lmbDown and 1 or 0
         currentWeight = currentWeight + (targetWeight - currentWeight) * WEIGHT_SPEED
         ik.Weight = currentWeight
+        ik2.Weight = currentWeight
 
-        -- World-space swing direction from the mouse angle
+        -- ── Right arm: swing toward mouse direction ──────────────────────────
         local lx, ly, lz = SwingMath.localBladeDir(swingState)
         local worldDir = root.CFrame:VectorToWorldSpace(Vector3.new(lx, ly, lz))
-
-        -- Target = where the hand should land when fully swinging in this direction.
-        -- Shoulder is approximately the top of the upper arm.
         local shoulderPos = rightUpperArm.Position + Vector3.new(0, 0.3, 0)
         local swingPos = shoulderPos + worldDir * ARM_REACH
-
-        -- Blend target from the animated hand position (weight ≈ 0) to the swing
-        -- goal (weight ≈ 1) so the IK doesn't fight the animation when not swinging.
         t.CFrame = CFrame.new(rightHand.Position:Lerp(swingPos, currentWeight))
+
+        -- ── Left arm: grip the sword handle below the right hand ─────────────
+        -- The sword is welded to RightHand with its length along -YVector,
+        -- so the second grip is GRIP_OFFSET studs down that axis.
+        local gripPos = rightHand.Position - rightHand.CFrame.YVector * GRIP_OFFSET
+        t2.CFrame = CFrame.new(leftHand.Position:Lerp(gripPos, currentWeight))
     end)
 end
 
