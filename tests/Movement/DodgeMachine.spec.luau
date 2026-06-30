@@ -1,83 +1,157 @@
 local DodgeMachine = require("../../src/shared/Movement/DodgeMachine")
 
-local function tick(machine, left, right, dt)
-    return machine:update(left, right, dt)
+-- helpers: side tick (no forward/backward), axis tick (no left/right)
+local function side(machine, left, right, dt, blocked)
+    return machine:update(left, right, false, false, dt, blocked)
+end
+
+local function axis(machine, forward, backward, dt)
+    return machine:update(false, false, forward, backward, dt, false)
 end
 
 return {
+    -- ── Side dodge (A↔D) ──────────────────────────────────────────────
+
     ["starts not dodging"] = function()
         local m = DodgeMachine.new()
         assert(m:isDodging() == false, "should not be dodging at start")
     end,
 
-    ["A→D quick switch triggers dodge"] = function()
+    ["A→D quick switch triggers side dodge"] = function()
         local m = DodgeMachine.new()
-        tick(m, true, false, 0.01) -- hold A
-        tick(m, false, false, 0.1) -- release A
-        local dodging = tick(m, false, true, 0.01) -- press D within window
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        local dodging = side(m, false, true, 0.01)
         assert(dodging == true, "A→D quick switch should trigger dodge")
     end,
 
-    ["D→A quick switch triggers dodge"] = function()
+    ["D→A quick switch triggers side dodge"] = function()
         local m = DodgeMachine.new()
-        tick(m, false, true, 0.01) -- hold D
-        tick(m, false, false, 0.1) -- release D
-        local dodging = tick(m, true, false, 0.01) -- press A within window
+        side(m, false, true, 0.01)
+        side(m, false, false, 0.01)
+        local dodging = side(m, true, false, 0.01)
         assert(dodging == true, "D→A quick switch should trigger dodge")
     end,
 
-    ["slow A→D switch does not trigger dodge"] = function()
+    ["slow A→D does not trigger side dodge"] = function()
         local m = DodgeMachine.new()
-        tick(m, true, false, 0.01) -- hold A
-        tick(m, false, false, 0.01) -- release A (timestamp recorded here)
-        tick(m, false, false, DodgeMachine.SWITCH_WINDOW + 0.05) -- wait too long
-        local dodging = tick(m, false, true, 0.01) -- press D — too late
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        side(m, false, false, DodgeMachine.SWITCH_WINDOW + 0.05)
+        local dodging = side(m, false, true, 0.01)
         assert(dodging == false, "slow switch must not dodge")
     end,
 
-    ["dodge expires after DODGE_DURATION"] = function()
+    ["side dodge expires after DODGE_DURATION"] = function()
         local m = DodgeMachine.new()
-        tick(m, true, false, 0.01)
-        tick(m, false, false, 0.05)
-        tick(m, false, true, 0.01) -- trigger dodge
-        -- advance past duration
-        tick(m, false, true, DodgeMachine.DODGE_DURATION + 0.01)
-        assert(m:isDodging() == false, "dodge should expire after DODGE_DURATION")
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        side(m, false, true, 0.01)
+        side(m, false, true, DodgeMachine.DODGE_DURATION + 0.01)
+        assert(m:isDodging() == false, "side dodge should expire")
     end,
 
-    ["cooldown prevents immediate re-dodge"] = function()
+    ["side dodge blocked while forward held"] = function()
         local m = DodgeMachine.new()
-        -- First dodge: A→D
-        tick(m, true, false, 0.01)
-        tick(m, false, false, 0.05)
-        tick(m, false, true, 0.01)
-        -- Wait for dodge to end but not cooldown
-        tick(m, false, true, DodgeMachine.DODGE_DURATION + 0.05)
-        -- Try D→A immediately
-        tick(m, false, false, 0.05) -- release D
-        local dodging = tick(m, true, false, 0.01) -- press A
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        local dodging = side(m, false, true, 0.01, true) -- blocked = true (W held)
+        assert(dodging == false, "side dodge must not trigger while W held")
+    end,
+
+    ["side cooldown prevents immediate re-dodge"] = function()
+        local m = DodgeMachine.new()
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        side(m, false, true, 0.01)
+        side(m, false, true, DodgeMachine.DODGE_DURATION + 0.05)
+        side(m, false, false, 0.05)
+        local dodging = side(m, true, false, 0.01)
         assert(dodging == false, "cooldown should block re-dodge")
     end,
 
-    ["can dodge again after cooldown expires"] = function()
+    ["can side-dodge again after cooldown"] = function()
         local m = DodgeMachine.new()
-        -- First dodge
-        tick(m, true, false, 0.01)
-        tick(m, false, false, 0.05)
-        tick(m, false, true, 0.01)
-        -- Wait out full cooldown
-        tick(m, false, true, DodgeMachine.DODGE_COOLDOWN + 0.1)
-        -- Second dodge: D→A
-        tick(m, false, false, 0.05)
-        local dodging = tick(m, true, false, 0.01)
-        assert(dodging == true, "should be able to dodge again after cooldown")
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        side(m, false, true, 0.01)
+        side(m, false, true, DodgeMachine.DODGE_COOLDOWN + 0.1)
+        side(m, false, false, 0.05)
+        local dodging = side(m, true, false, 0.01)
+        assert(dodging == true, "should dodge again after cooldown")
     end,
 
-    ["DODGE_MULTIPLIER is greater than sprint speed"] = function()
-        local MovementIntent = require("../../src/shared/Movement/MovementIntent")
+    -- ── Axis dodge (W↔S) ──────────────────────────────────────────────
+
+    ["W→S quick switch triggers axis dodge"] = function()
+        local m = DodgeMachine.new()
+        axis(m, true, false, 0.01)
+        axis(m, false, false, 0.01)
+        local dodging = axis(m, false, true, 0.01)
+        assert(dodging == true, "W→S should trigger axis dodge")
+    end,
+
+    ["S→W quick switch triggers axis dodge"] = function()
+        local m = DodgeMachine.new()
+        axis(m, false, true, 0.01)
+        axis(m, false, false, 0.01)
+        local dodging = axis(m, true, false, 0.01)
+        assert(dodging == true, "S→W should trigger axis dodge")
+    end,
+
+    ["slow W→S does not trigger axis dodge"] = function()
+        local m = DodgeMachine.new()
+        axis(m, true, false, 0.01)
+        axis(m, false, false, 0.01)
+        axis(m, false, false, DodgeMachine.SWITCH_WINDOW + 0.05)
+        local dodging = axis(m, false, true, 0.01)
+        assert(dodging == false, "slow W→S must not dodge")
+    end,
+
+    ["axis dodge lasts longer than side dodge"] = function()
         assert(
-            DodgeMachine.DODGE_MULTIPLIER > MovementIntent.SPRINT_SPEED_MULTIPLIER,
-            "dodge must be faster than sprint"
+            DodgeMachine.AXIS_DODGE_DURATION > DodgeMachine.DODGE_DURATION,
+            "axis dodge must be longer than side dodge"
+        )
+    end,
+
+    ["axis cooldown is separate from side cooldown"] = function()
+        local m = DodgeMachine.new()
+        -- trigger side dodge
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        side(m, false, true, 0.01)
+        -- axis dodge should still be available
+        axis(m, true, false, 0.01)
+        axis(m, false, false, 0.01)
+        local dodging = axis(m, false, true, 0.01)
+        assert(dodging == true, "axis cooldown must be independent of side cooldown")
+    end,
+
+    ["activeDodgeMultiplier returns 1 when not dodging"] = function()
+        local m = DodgeMachine.new()
+        assert(m:activeDodgeMultiplier() == 1, "expected 1 when idle")
+    end,
+
+    ["activeDodgeMultiplier returns DODGE_MULTIPLIER during side dodge"] = function()
+        local m = DodgeMachine.new()
+        side(m, true, false, 0.01)
+        side(m, false, false, 0.01)
+        side(m, false, true, 0.01)
+        assert(
+            m:activeDodgeMultiplier() == DodgeMachine.DODGE_MULTIPLIER,
+            "expected DODGE_MULTIPLIER"
+        )
+    end,
+
+    ["activeDodgeMultiplier returns AXIS_DODGE_MULTIPLIER during axis dodge"] = function()
+        local m = DodgeMachine.new()
+        axis(m, true, false, 0.01)
+        axis(m, false, false, 0.01)
+        axis(m, false, true, 0.01)
+        assert(
+            m:activeDodgeMultiplier() == DodgeMachine.AXIS_DODGE_MULTIPLIER,
+            "expected AXIS_DODGE_MULTIPLIER"
         )
     end,
 }
