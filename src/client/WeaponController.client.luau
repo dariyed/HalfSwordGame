@@ -1,10 +1,12 @@
 --[[
-    Mouse-driven arm swing via Motor6D.C0.
+    Mouse-driven arm swing via Motor6D.Transform.
 
-    The RightShoulder Motor6D's C0 property is the joint's base offset.
-    The Animator writes to Motor6D.Transform, but never touches C0.
-    So we multiply C0 by our swing rotation each frame — the result is
-    the arm rotating on top of whatever animation is playing.
+    The Animator writes Motor6D.Transform during the physics step.
+    By binding at Enum.RenderPriority.Last (runs last before the frame draws),
+    we overwrite the Animator's value so our rotation is what actually renders.
+
+    Only write Transform while weight > 0 — when we stop writing, the Animator
+    resumes full control and the arm returns to its idle/walk pose.
 
     The sword is welded to RightHand so it follows the arm for free.
 ]]
@@ -42,7 +44,6 @@ end)
 local function onCharacter(character: Model)
     character:WaitForChild("Sword", 10)
 
-    -- WaitForChild ensures both parts have finished loading before we touch them
     local rightUpperArm = character:WaitForChild("RightUpperArm", 10) :: BasePart?
     if not rightUpperArm then
         warn("WeaponController: RightUpperArm not found")
@@ -51,50 +52,50 @@ local function onCharacter(character: Model)
 
     local shoulder = rightUpperArm:WaitForChild("RightShoulder", 10) :: Motor6D?
     if not shoulder then
-        warn("WeaponController: RightShoulder Motor6D not found")
+        warn("WeaponController: RightShoulder not found inside RightUpperArm")
         return
     end
 
-    -- C0 is the joint's base offset on the torso side.
-    -- The Animator never modifies C0, so we can safely multiply our rotation in.
-    local originalC0 = shoulder.C0
     currentWeight = 0
 
-    character.AncestryChanged:Connect(function()
-        if not character:IsDescendantOf(game) then
-            -- Restore C0 in case the Humanoid lingers after respawn
-            shoulder.C0 = originalC0
+    RunService:BindToRenderStep(
+        "WeaponSwing",
+        Enum.RenderPriority.Last.Value, -- runs after Animator; our value wins
+        function()
+            if not character:IsDescendantOf(game) then
+                RunService:UnbindFromRenderStep("WeaponSwing")
+                return
+            end
+
+            if lmbDown then
+                local delta = UserInputService:GetMouseDelta()
+                swingState = SwingMath.accumulate(swingState, delta.X, delta.Y)
+            else
+                swingState = {
+                    yaw = swingState.yaw * 0.9,
+                    pitch = swingState.pitch * 0.9 + math.rad(-25) * 0.1,
+                }
+            end
+
+            local targetWeight = lmbDown and 1 or 0
+            currentWeight = currentWeight + (targetWeight - currentWeight) * WEIGHT_SPEED
+
+            -- Only write while weight is meaningful.
+            -- When we stop writing, the Animator takes full control again.
+            if currentWeight > 0.005 then
+                local w = currentWeight
+                -- Post-multiply Transform so our swing sits on top of the animation pose.
+                -- X → forward/back arm raise (pitch), Y → horizontal sweep (yaw).
+                -- Negate a term if its direction feels reversed in-game.
+                shoulder.Transform = CFrame.Angles(-swingState.pitch * w, -swingState.yaw * w, 0)
+            end
         end
-    end)
-
-    RunService.RenderStepped:Connect(function()
-        if not character:IsDescendantOf(game) then
-            return
-        end
-
-        if lmbDown then
-            local delta = UserInputService:GetMouseDelta()
-            swingState = SwingMath.accumulate(swingState, delta.X, delta.Y)
-        else
-            swingState = {
-                yaw = swingState.yaw * 0.9,
-                pitch = swingState.pitch * 0.9 + math.rad(-25) * 0.1,
-            }
-        end
-
-        local targetWeight = lmbDown and 1 or 0
-        currentWeight = currentWeight + (targetWeight - currentWeight) * WEIGHT_SPEED
-
-        -- Post-multiply C0 by the swing rotation so it sits on top of the animation.
-        -- Axes (in joint local space):
-        --   X (first)  → forward / backward arm raise  (pitch)
-        --   Y (second) → horizontal arm sweep           (yaw)
-        -- If a direction feels reversed, negate the matching term.
-        local w = currentWeight
-        shoulder.C0 = originalC0 * CFrame.Angles(-swingState.pitch * w, -swingState.yaw * w, 0)
-    end)
+    )
 end
 
 local character = player.Character or player.CharacterAdded:Wait()
 onCharacter(character)
-player.CharacterAdded:Connect(onCharacter)
+player.CharacterAdded:Connect(function(newCharacter)
+    RunService:UnbindFromRenderStep("WeaponSwing")
+    onCharacter(newCharacter)
+end)
