@@ -24,13 +24,16 @@ local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 local stanceMachine = StanceMachine.new()
 local currentSpeedMul = 0 -- smoothed speed multiplier, drives actual WalkSpeed
 
--- Track jump to prevent double-jump
+-- Track jump to prevent double-jump (and held-Space re-jump on landing)
 local canJump = true
 humanoid.StateChanged:Connect(function(_, new)
-    if new == Enum.HumanoidStateType.Landed then
-        canJump = true
-    elseif new == Enum.HumanoidStateType.Jumping or new == Enum.HumanoidStateType.Freefall then
+    if new == Enum.HumanoidStateType.Jumping then
+        humanoid.Jump = false -- clear flag so landing with Space held doesn't re-trigger
         canJump = false
+    elseif new == Enum.HumanoidStateType.Freefall then
+        canJump = false
+    elseif new == Enum.HumanoidStateType.Landed then
+        canJump = true
     end
 end)
 
