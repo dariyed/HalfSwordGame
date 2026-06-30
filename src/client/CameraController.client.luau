@@ -3,28 +3,43 @@
     Wall collision via raycast prevents clipping through geometry.
 ]]
 
+local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local CameraMath = require(game.ReplicatedStorage.Shared.Camera.CameraMath)
 local CameraMode = require(game.ReplicatedStorage.Shared.Camera.CameraMode)
+local CameraState = require(game.ReplicatedStorage.Shared.Camera.CameraState)
 local Sensitivity = require(game.ReplicatedStorage.Shared.Settings.Sensitivity)
 
 -- === Feel knobs ===
-local CAMERA_DISTANCE = 12 -- studs behind the character in third-person
-local HEAD_OFFSET = Vector3.new(0, 1.5, 0) -- point camera looks at (upper chest / neck)
-local WALL_MARGIN = 0.35 -- studs to stay away from walls
-local sensitivity = Sensitivity.DEFAULT -- start with the shared default; tunable in Issue #7
+local CAMERA_DISTANCE = 12
+local HEAD_OFFSET = Vector3.new(0, 1.5, 0)
+local WALL_MARGIN = 0.35
+local sensitivity = Sensitivity.DEFAULT
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
+
+-- Disable Roblox's built-in camera module so it doesn't fight ours.
+-- pcall guards against API changes across Studio versions.
+local PlayerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
+pcall(function()
+    PlayerModule:GetCameras():Disable()
+end)
+
+-- Sink scroll wheel so Roblox can't zoom in/out underneath us.
+ContextActionService:BindActionAtPriority("SinkCameraZoom", function()
+    return Enum.ContextActionResult.Sink
+end, false, Enum.ContextActionPriority.High.Value, Enum.UserInputType.MouseWheel)
+
 camera.CameraType = Enum.CameraType.Scriptable
 UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 
 local mode = CameraMode.new()
 local yaw = 0
-local pitch = math.rad(-15) -- slight downward tilt by default
+local pitch = math.rad(-15)
 
 -- C key toggles first/third person
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -46,7 +61,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
--- Raycast from target toward camera; if something blocks, pull the camera closer.
 local function collide(target: Vector3, desiredCF: CFrame): CFrame
     local dir = desiredCF.Position - target
     local params = RaycastParams.new()
@@ -63,7 +77,13 @@ local function collide(target: Vector3, desiredCF: CFrame): CFrame
     return desiredCF
 end
 
-RunService.RenderStepped:Connect(function()
+-- Priority Camera.Value + 1 means we run AFTER the default Roblox camera each frame,
+-- so our CFrame always wins even if the default script also wrote to it this frame.
+RunService:BindToRenderStep("HalfSwordCamera", Enum.RenderPriority.Camera.Value + 1, function()
+    -- Re-assert these each frame in case another script resets them.
+    camera.CameraType = Enum.CameraType.Scriptable
+    UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+
     local character = player.Character
     if not character then
         return
@@ -75,6 +95,9 @@ RunService.RenderStepped:Connect(function()
 
     local delta = UserInputService:GetMouseDelta()
     yaw, pitch = CameraMath.accumulate(yaw, pitch, delta.X, delta.Y, sensitivity)
+
+    -- Publish yaw so MovementController can rotate the character to match.
+    CameraState.yaw = yaw
 
     local target = root.Position + HEAD_OFFSET
 
