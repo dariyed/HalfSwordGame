@@ -36,14 +36,12 @@ local function compute(input: Input): Intent
     local speedMultiplier
     if sprinting then
         speedMultiplier = SPRINT_SPEED_MULTIPLIER
-    elseif input.w and not input.s then
-        speedMultiplier = 1.0 -- forward (with or without strafe)
     elseif input.s and not input.w then
         speedMultiplier = BACKWARD_SPEED_MULTIPLIER
     elseif (input.a or input.d) and not input.w and not input.s then
         speedMultiplier = STRAFE_SPEED_MULTIPLIER
     else
-        speedMultiplier = 1.0 -- standing or opposing keys cancel
+        speedMultiplier = 1.0 -- forward, standing, or opposing keys cancel
     end
 
     return {
