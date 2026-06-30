@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local CameraState = require(game.ReplicatedStorage.Shared.Camera.CameraState)
+local DodgeMachine = require(game.ReplicatedStorage.Shared.Movement.DodgeMachine)
 local MovementIntent = require(game.ReplicatedStorage.Shared.Movement.MovementIntent)
 local StanceMachine = require(game.ReplicatedStorage.Shared.Movement.StanceMachine)
 
@@ -34,6 +35,7 @@ local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 humanoid.AutoRotate = false
 
 local stanceMachine = StanceMachine.new()
+local dodgeMachine = DodgeMachine.new()
 local currentSpeedMul = 0 -- smoothed speed multiplier, drives actual WalkSpeed
 
 -- Track jump to prevent double-jump (and held-Space re-jump on landing)
@@ -79,10 +81,12 @@ RunService.Heartbeat:Connect(function(dt)
 
     stanceMachine:update(keys.shift)
     local intent = MovementIntent.compute(keys)
+    local dodging = dodgeMachine:update(keys.a, keys.d, dt)
 
     -- Smooth the speed multiplier for weighty acceleration/deceleration feel
-    local targetMul = intent.speedMultiplier
-        * (math.abs(intent.direction.x) + math.abs(intent.direction.z) > 0 and 1 or 0)
+    local moving = math.abs(intent.direction.x) + math.abs(intent.direction.z) > 0
+    local targetMul = (dodging and DodgeMachine.DODGE_MULTIPLIER or intent.speedMultiplier)
+        * (moving and 1 or 0)
     local factor = targetMul > currentSpeedMul and ACCEL_FACTOR or DECEL_FACTOR
     currentSpeedMul = currentSpeedMul + (targetMul - currentSpeedMul) * math.min(dt * factor, 1)
 
