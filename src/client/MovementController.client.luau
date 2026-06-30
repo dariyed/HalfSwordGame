@@ -83,15 +83,24 @@ RunService.Heartbeat:Connect(function(dt)
 
     humanoid.WalkSpeed = BASE_WALK_SPEED * math.max(currentSpeedMul, intent.speedMultiplier * 0.01)
 
-    -- Drive movement direction relative to camera
+    -- Drive movement direction relative to camera.
+    -- Project the camera's look and right vectors onto the XZ plane so slope doesn't tilt movement.
     local camera = workspace.CurrentCamera
     if not camera then
         return
     end
-    local camYaw = math.atan2(-camera.CFrame.LookVector.X, -camera.CFrame.LookVector.Z)
-    local cos, sin = math.cos(camYaw), math.sin(camYaw)
-    local worldX = intent.direction.x * cos - intent.direction.z * sin
-    local worldZ = intent.direction.x * sin + intent.direction.z * cos
+    local look = camera.CFrame.LookVector
+    local right = camera.CFrame.RightVector
+    local camForward = Vector3.new(look.X, 0, look.Z)
+    local camRight = Vector3.new(right.X, 0, right.Z)
+    if camForward.Magnitude > 0.001 then
+        camForward = camForward.Unit
+    end
+    if camRight.Magnitude > 0.001 then
+        camRight = camRight.Unit
+    end
 
-    humanoid:Move(Vector3.new(worldX, 0, worldZ), false)
+    -- intent.direction.z = -1 for W (forward), so negate it to align with camera forward
+    local worldDir = camForward * -intent.direction.z + camRight * intent.direction.x
+    humanoid:Move(worldDir, false)
 end)
