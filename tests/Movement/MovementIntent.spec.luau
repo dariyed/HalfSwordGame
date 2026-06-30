@@ -82,11 +82,26 @@ return {
         )
     end,
 
-    ["shift held → reduced speed multiplier"] = function()
+    ["shift+W → sprint speed multiplier (> 1.0)"] = function()
         local result =
             MovementIntent.compute({ w = true, a = false, s = false, d = false, shift = true })
-        assert(result.speedMultiplier < 1.0, "stance speed must be less than 1.0")
-        assert(result.speedMultiplier > 0.0, "stance speed must be positive")
+        assert(result.speedMultiplier > 1.0, "sprint speed must be greater than 1.0")
+        assert(
+            approxEq(result.speedMultiplier, MovementIntent.SPRINT_SPEED_MULTIPLIER),
+            "expected SPRINT_SPEED_MULTIPLIER"
+        )
+    end,
+
+    ["shift+W+A → sprint (W held with sideways)"] = function()
+        local result =
+            MovementIntent.compute({ w = true, a = true, s = false, d = false, shift = true })
+        assert(result.speedMultiplier > 1.0, "shift+W+A should sprint")
+    end,
+
+    ["shift without W → no sprint (normal speed)"] = function()
+        local result =
+            MovementIntent.compute({ w = false, a = true, s = false, d = false, shift = true })
+        assert(approxEq(result.speedMultiplier, 1.0), "shift alone without W must not sprint")
     end,
 
     ["diagonal speed equals straight speed (no faster-diagonal bug)"] = function()
@@ -100,17 +115,23 @@ return {
         )
     end,
 
-    -- Stance flag
+    -- Sprint flag
 
-    ["shift held → inStance = true"] = function()
+    ["shift+W → isSprinting = true"] = function()
         local result =
-            MovementIntent.compute({ w = false, a = false, s = false, d = false, shift = true })
-        assert(result.inStance == true, "expected inStance=true")
+            MovementIntent.compute({ w = true, a = false, s = false, d = false, shift = true })
+        assert(result.isSprinting == true, "expected isSprinting=true")
     end,
 
-    ["shift not held → inStance = false"] = function()
+    ["shift without W → isSprinting = false"] = function()
+        local result =
+            MovementIntent.compute({ w = false, a = true, s = false, d = false, shift = true })
+        assert(result.isSprinting == false, "expected isSprinting=false when W not held")
+    end,
+
+    ["shift not held → isSprinting = false"] = function()
         local result =
             MovementIntent.compute({ w = false, a = false, s = false, d = false, shift = false })
-        assert(result.inStance == false, "expected inStance=false")
+        assert(result.isSprinting == false, "expected isSprinting=false")
     end,
 }

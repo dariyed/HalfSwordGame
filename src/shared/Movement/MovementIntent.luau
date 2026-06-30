@@ -3,7 +3,7 @@
     No Roblox Instances — safe to test headlessly under Lune.
 ]]
 
-local STANCE_SPEED_MULTIPLIER = 0.45
+local SPRINT_SPEED_MULTIPLIER = 1.6
 
 export type Input = {
     w: boolean,
@@ -16,7 +16,7 @@ export type Input = {
 export type Intent = {
     direction: { x: number, z: number },
     speedMultiplier: number,
-    inStance: boolean,
+    isSprinting: boolean,
 }
 
 local function compute(input: Input): Intent
@@ -29,14 +29,16 @@ local function compute(input: Input): Intent
         z = z / len
     end
 
+    local sprinting = input.shift and input.w
+
     return {
         direction = { x = x, z = z },
-        speedMultiplier = input.shift and STANCE_SPEED_MULTIPLIER or 1.0,
-        inStance = input.shift,
+        speedMultiplier = sprinting and SPRINT_SPEED_MULTIPLIER or 1.0,
+        isSprinting = sprinting,
     }
 end
 
 return {
     compute = compute,
-    STANCE_SPEED_MULTIPLIER = STANCE_SPEED_MULTIPLIER,
+    SPRINT_SPEED_MULTIPLIER = SPRINT_SPEED_MULTIPLIER,
 }
