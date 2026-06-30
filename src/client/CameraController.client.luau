@@ -53,20 +53,20 @@ UserInputService.InputBegan:Connect(function(input, processed)
         if not character then
             return
         end
-        -- Parts to keep visible in first-person (arms and legs, not head/torso)
+        -- Parts to keep visible in first-person.
+        -- Upper arms are excluded: they swing into the camera view and block it.
         local KEEP_VISIBLE = {
             LeftHand = true,
             RightHand = true,
             LeftLowerArm = true,
             RightLowerArm = true,
-            LeftUpperArm = true,
-            RightUpperArm = true,
             LeftFoot = true,
             RightFoot = true,
             LeftLowerLeg = true,
             RightLowerLeg = true,
             LeftUpperLeg = true,
             RightUpperLeg = true,
+            Sword = true,
         }
         local inFirst = mode:isFirstPerson()
         for _, part in character:GetDescendants() do
@@ -112,7 +112,11 @@ RunService:BindToRenderStep("HalfSwordCamera", Enum.RenderPriority.Camera.Value 
     end
 
     local delta = UserInputService:GetMouseDelta()
-    yaw, pitch = CameraMath.accumulate(yaw, pitch, delta.X, delta.Y, sensitivity)
+    -- Slow camera when swinging so aiming stays precise
+    local camScale = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) and 0.35
+        or 1
+    yaw, pitch =
+        CameraMath.accumulate(yaw, pitch, delta.X * camScale, delta.Y * camScale, sensitivity)
 
     -- Publish yaw so MovementController can rotate the character to match.
     CameraState.yaw = yaw

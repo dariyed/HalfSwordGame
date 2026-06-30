@@ -1,12 +1,15 @@
 --[[
-    Mouse-driven weapon control.
+    Mouse-driven arm swing via IKControl.
 
-    While LMB is held, the mouse position is projected onto a sphere around the
-    character. AlignPosition + AlignOrientation on the sword hilt chase that goal
-    each frame — the sword physically has to fight through its own mass to get there,
-    giving it weight. On LMB release the constraints relax back to the weld.
+    Motor6D.Transform is overridden by Roblox's animation engine on every physics
+    step — scripts cannot win that race. IKControl is the correct hook: it runs
+    INSIDE the Animator's IK pass, so its result is the final joint pose.
 
-    Feel knobs at the top.
+    Each frame we move an anchored Part ("SwingTarget") to where the right hand
+    should be for the current mouse angle, then let IKControl pull the arm there.
+    Weight blends smoothly 0 → 1 when LMB is held and back to 0 when released.
+
+    The sword is welded to RightHand by WeaponService and follows for free.
 ]]
 
 local Players = game:GetService("Players")
@@ -14,67 +17,20 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local SwingMath = require(game.ReplicatedStorage.Shared.Weapon.SwingMath)
-local WeaponConfig = require(game.ReplicatedStorage.Shared.Weapon.WeaponConfig)
 
 -- === Feel knobs ===
-local config = WeaponConfig.get("default")
--- While swinging: high force/torque so the blade actually moves
-local SWING_MAX_FORCE = config.maxForce
-local SWING_MAX_TORQUE = config.maxTorque
-local SWING_RESPONSIVENESS = config.responsiveness
--- While relaxed (LMB up): lower so the sword settles naturally back
-local REST_MAX_FORCE = 2000
-local REST_MAX_TORQUE = 1000
-local REST_RESPONSIVENESS = 8
+local WEIGHT_SPEED = 0.15 -- lerp factor per frame: how fast the arm engages / releases
+local ARM_REACH = 1.8 -- studs from shoulder to the IK target (arm roughly extended)
 
 local player = Players.LocalPlayer
-local swingState: SwingMath.SwingState = { yaw = 0, pitch = 0 }
+
+local swingState: SwingMath.SwingState = { yaw = 0, pitch = math.rad(-25) }
 local lmbDown = false
+local currentWeight = 0
 
--- Wait for character and sword
-local function getCharacter()
-    return player.Character or player.CharacterAdded:Wait()
-end
-
-local function getSword(character: Model): BasePart?
-    return character:FindFirstChild("Sword", true) :: BasePart?
-end
-
-local function getRootPart(character: Model): BasePart?
-    return character:FindFirstChild("HumanoidRootPart") :: BasePart?
-end
-
--- Build AlignPosition + AlignOrientation on the sword hilt (runs once per life)
-local function setupConstraints(sword: BasePart): (AlignPosition, AlignOrientation)
-    -- Attachment at hilt centre
-    local attach = sword:FindFirstChildOfClass("Attachment")
-    if not attach then
-        attach = Instance.new("Attachment")
-        attach.Parent = sword
-    end
-
-    local alignPos = Instance.new("AlignPosition")
-    alignPos.Name = "SwingAlignPos"
-    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
-    alignPos.Attachment0 = attach
-    alignPos.Position = sword.Position -- updated each frame
-    alignPos.MaxForce = REST_MAX_FORCE
-    alignPos.Responsiveness = REST_RESPONSIVENESS
-    alignPos.RigidityEnabled = false
-    alignPos.Parent = sword
-
-    local alignOri = Instance.new("AlignOrientation")
-    alignOri.Name = "SwingAlignOri"
-    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
-    alignOri.Attachment0 = attach
-    alignOri.CFrame = sword.CFrame -- updated each frame
-    alignOri.MaxTorque = REST_MAX_TORQUE
-    alignOri.Responsiveness = REST_RESPONSIVENESS
-    alignOri.RigidityEnabled = false
-    alignOri.Parent = sword
-
-    return alignPos, alignOri
-end
+-- Module-level refs so we can clean them up on respawn
+local ikTarget: Part? = nil
+local ikControl: IKControl? = nil
 
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
@@ -82,8 +38,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         lmbDown = true
-        -- Reset swing state to current mouse heading so there's no jump on LMB press
-        swingState = { yaw = 0, pitch = 0 }
     end
 end)
 
@@ -93,78 +47,95 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Per-character setup
 local function onCharacter(character: Model)
-    -- Give WeaponService time to spawn and weld the sword
-    task.wait(0.5)
+    -- Sword presence confirms WeaponService has finished equipping
+    character:WaitForChild("Sword", 10)
 
-    local sword = getSword(character)
-    if not sword then
+    local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+    local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
+    local rightUpperArm = character:WaitForChild("RightUpperArm", 10) :: BasePart?
+    local rightHand = character:WaitForChild("RightHand", 10) :: BasePart?
+
+    if not root or not rightUpperArm or not rightHand then
+        warn("WeaponController: arm parts not found — arm swing disabled")
         return
     end
 
-    -- Remove the weld while swinging (constraints drive position instead)
-    local weld = sword:FindFirstChildOfClass("WeldConstraint")
-
-    local alignPos, alignOri = setupConstraints(sword)
-
-    -- Give sword network ownership to this client
-    if sword:IsA("BasePart") then
-        sword:SetNetworkOwner(player)
+    -- Remove objects from any previous character life
+    if ikTarget then
+        ikTarget:Destroy()
+    end
+    if ikControl then
+        ikControl:Destroy()
     end
 
-    RunService.RenderStepped:Connect(function()
+    -- Anchored local part that we move each frame to steer the arm.
+    -- Parented to workspace (client-only; server never sees it).
+    local t = Instance.new("Part")
+    t.Name = "SwingTarget"
+    t.Size = Vector3.new(0.1, 0.1, 0.1)
+    t.Anchored = true
+    t.CanCollide = false
+    t.CanTouch = false
+    t.Transparency = 1
+    t.CFrame = rightHand.CFrame
+    t.Parent = workspace
+    ikTarget = t
+
+    -- IKControl parented to Humanoid — the Animator solves RightUpperArm → RightHand
+    -- so that RightHand arrives at the SwingTarget position.
+    local ik = Instance.new("IKControl")
+    ik.Name = "SwingIK"
+    ik.Type = Enum.IKControlType.Position
+    ik.ChainRoot = rightUpperArm
+    ik.EndEffector = rightHand
+    ik.Target = t
+    ik.Weight = 0
+    ik.Parent = humanoid
+    ikControl = ik
+
+    currentWeight = 0
+
+    RunService:BindToRenderStep("WeaponSwing", Enum.RenderPriority.Last.Value, function()
         if not character:IsDescendantOf(game) then
-            return
-        end
-        local root = getRootPart(character)
-        if not root then
+            RunService:UnbindFromRenderStep("WeaponSwing")
             return
         end
 
-        local delta = UserInputService:GetMouseDelta()
-
+        -- Accumulate mouse delta when swinging; drift back to rest when not
         if lmbDown then
-            -- Disable weld so physics constraints can move the sword freely
-            if weld then
-                weld.Enabled = false
-            end
-
-            -- Accumulate mouse delta into swing state
+            local delta = UserInputService:GetMouseDelta()
             swingState = SwingMath.accumulate(swingState, delta.X, delta.Y)
-
-            -- Compute goal CFrame from swing state
-            local goalCF = SwingMath.toGoalCFrame(swingState, root.CFrame)
-
-            -- Drive constraints toward goal
-            alignPos.Position = goalCF.Position
-            alignPos.MaxForce = SWING_MAX_FORCE
-            alignPos.Responsiveness = SWING_RESPONSIVENESS
-
-            alignOri.CFrame = goalCF
-            alignOri.MaxTorque = SWING_MAX_TORQUE
-            alignOri.Responsiveness = SWING_RESPONSIVENESS
         else
-            -- Re-enable weld so sword returns to hand
-            if weld then
-                weld.Enabled = true
-            end
-
-            -- Relax constraints (let weld do the positioning)
-            alignPos.MaxForce = REST_MAX_FORCE
-            alignPos.Responsiveness = REST_RESPONSIVENESS
-            alignOri.MaxTorque = REST_MAX_TORQUE
-            alignOri.Responsiveness = REST_RESPONSIVENESS
-
-            -- Slowly reset swing state toward neutral
             swingState = {
-                yaw = swingState.yaw * 0.85,
-                pitch = swingState.pitch * 0.85,
+                yaw = swingState.yaw * 0.9,
+                pitch = swingState.pitch * 0.9 + math.rad(-25) * 0.1,
             }
         end
+
+        -- Smooth weight: 0 = pure animation, 1 = pure IK swing
+        local targetWeight = lmbDown and 1 or 0
+        currentWeight = currentWeight + (targetWeight - currentWeight) * WEIGHT_SPEED
+        ik.Weight = currentWeight
+
+        -- World-space swing direction from the mouse angle
+        local lx, ly, lz = SwingMath.localBladeDir(swingState)
+        local worldDir = root.CFrame:VectorToWorldSpace(Vector3.new(lx, ly, lz))
+
+        -- Target = where the hand should land when fully swinging in this direction.
+        -- Shoulder is approximately the top of the upper arm.
+        local shoulderPos = rightUpperArm.Position + Vector3.new(0, 0.3, 0)
+        local swingPos = shoulderPos + worldDir * ARM_REACH
+
+        -- Blend target from the animated hand position (weight ≈ 0) to the swing
+        -- goal (weight ≈ 1) so the IK doesn't fight the animation when not swinging.
+        t.CFrame = CFrame.new(rightHand.Position:Lerp(swingPos, currentWeight))
     end)
 end
 
-local character = getCharacter()
+local character = player.Character or player.CharacterAdded:Wait()
 onCharacter(character)
-player.CharacterAdded:Connect(onCharacter)
+player.CharacterAdded:Connect(function(newCharacter)
+    RunService:UnbindFromRenderStep("WeaponSwing")
+    onCharacter(newCharacter)
+end)

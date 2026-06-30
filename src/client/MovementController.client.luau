@@ -25,7 +25,9 @@ local player = Players.LocalPlayer
 -- Without this the default script also sets humanoid.Jump = true while Space is held,
 -- causing the character to re-jump every time it lands.
 local PlayerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
-PlayerModule:GetControls():Disable()
+pcall(function()
+    PlayerModule:GetControls():Disable()
+end)
 
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid") :: Humanoid
@@ -125,7 +127,10 @@ RunService.Heartbeat:Connect(function(dt)
 
     -- intent.direction.z = -1 for W (forward), so negate it to align with camera forward
     local worldDir = camForward * -intent.direction.z + camRight * intent.direction.x
-    humanoid:Move(worldDir, false)
+    -- Guard against the character being removed between the nil check above and here
+    if character:IsDescendantOf(game) then
+        humanoid:Move(worldDir, false)
+    end
 
     -- Rotate the character to face the camera yaw (written by CameraController each frame).
     local root = character:FindFirstChild("HumanoidRootPart") :: BasePart

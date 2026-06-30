@@ -1,6 +1,7 @@
 --[[
-    Spawns a gray stick and welds it to the player's right arm on spawn.
-    Simple weld for now — physics-based swing comes in Issue #5.
+    Spawns a gray stick and welds it rigidly to the right hand.
+    WeaponController (LocalScript) creates a local IKControl that swings the arm;
+    the sword follows for free because of the WeldConstraint.
 ]]
 
 local Players = game:GetService("Players")
@@ -12,28 +13,20 @@ local function equipSword(character: Model, player: Player)
         return
     end
 
-    local stick = Instance.new("Part")
-    stick.Name = "Sword"
-    stick.Size = Vector3.new(0.2, 2, 0.2)
-    stick.BrickColor = BrickColor.new("Medium stone grey")
-    stick.Material = Enum.Material.SmoothPlastic
-    stick.CanCollide = false
-    stick.Anchored = false
-    stick.Parent = workspace
-
-    -- Grip at the hand, blade extends downward
-    stick.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
+    local sword = Instance.new("Part")
+    sword.Name = "Sword"
+    sword.Size = Vector3.new(0.2, 2, 0.2)
+    sword.BrickColor = BrickColor.new("Medium stone grey")
+    sword.Material = Enum.Material.SmoothPlastic
+    sword.CanCollide = false
+    sword.Anchored = false
+    sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
+    sword.Parent = character
 
     local weld = Instance.new("WeldConstraint")
     weld.Part0 = hand
-    weld.Part1 = stick
-    weld.Parent = stick
-
-    character.AncestryChanged:Connect(function()
-        if not character:IsDescendantOf(game) then
-            stick:Destroy()
-        end
-    end)
+    weld.Part1 = sword
+    weld.Parent = sword
 end
 
 Players.PlayerAdded:Connect(function(player)
