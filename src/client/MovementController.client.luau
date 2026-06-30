@@ -17,7 +17,7 @@ local StanceMachine = require(game.ReplicatedStorage.Shared.Movement.StanceMachi
 -- === Feel knobs (tune these during play-test) ===
 local BASE_WALK_SPEED = 16 -- studs/s at full speed
 local ACCEL_FACTOR = 8 -- higher = snappier acceleration
-local DECEL_FACTOR = 28 -- higher = snappier stop
+local DECEL_FACTOR = 50 -- higher = snappier stop
 -- Momentum: how much current speed resists direction changes.
 -- At speed 1.0, turn rate = TURN_RATE / (1 + 1.0 * MOMENTUM_FACTOR).
 -- Higher MOMENTUM_FACTOR = W→S takes longer at high speed.
@@ -87,7 +87,8 @@ RunService.Heartbeat:Connect(function(dt)
 
     stanceMachine:update(keys.shift)
     local intent = MovementIntent.compute(keys)
-    local dodging = dodgeMachine:update(keys.a, keys.d, dt)
+    -- Dodge is blocked while W is held — prevents spamming A→D to dash forward
+    local dodging = dodgeMachine:update(keys.a, keys.d, dt, keys.w)
 
     -- Smooth the speed multiplier for weighty acceleration/deceleration feel
     local moving = math.abs(intent.direction.x) + math.abs(intent.direction.z) > 0
@@ -95,12 +96,12 @@ RunService.Heartbeat:Connect(function(dt)
         * (moving and 1 or 0)
     local factor = targetMul > currentSpeedMul and ACCEL_FACTOR or DECEL_FACTOR
     currentSpeedMul = currentSpeedMul + (targetMul - currentSpeedMul) * math.min(dt * factor, 1)
-    -- Snap to zero so the character doesn't slide to a crawl
-    if targetMul == 0 and currentSpeedMul < 0.05 then
-        currentSpeedMul = 0
+    -- Snap to exact target once close enough so speed never lingers near zero
+    if math.abs(currentSpeedMul - targetMul) < 0.08 then
+        currentSpeedMul = targetMul
     end
 
-    humanoid.WalkSpeed = BASE_WALK_SPEED * math.max(currentSpeedMul, intent.speedMultiplier * 0.01)
+    humanoid.WalkSpeed = BASE_WALK_SPEED * currentSpeedMul
 
     -- Drive movement direction relative to camera.
     -- Project the camera's look and right vectors onto the XZ plane so slope doesn't tilt movement.

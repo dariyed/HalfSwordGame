@@ -24,7 +24,13 @@ function DodgeMachine.new()
     }, DodgeMachine)
 end
 
-function DodgeMachine:update(leftHeld: boolean, rightHeld: boolean, dt: number): boolean
+-- blocked: when true, new dodges cannot trigger (ongoing dodge still finishes)
+function DodgeMachine:update(
+    leftHeld: boolean,
+    rightHeld: boolean,
+    dt: number,
+    blocked: boolean?
+): boolean
     self._time += dt
     self._dodgeTimer = math.max(0, self._dodgeTimer - dt)
     self._cooldownTimer = math.max(0, self._cooldownTimer - dt)
@@ -37,7 +43,7 @@ function DodgeMachine:update(leftHeld: boolean, rightHeld: boolean, dt: number):
         self._lastRightRelease = self._time
     end
 
-    if self._cooldownTimer <= 0 then
+    if self._cooldownTimer <= 0 and not blocked then
         -- Just pressed D after recently releasing A → dodge right
         if rightHeld and not self._prevRight then
             if self._time - self._lastLeftRelease <= SWITCH_WINDOW then
