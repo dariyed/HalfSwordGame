@@ -48,7 +48,11 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 local function onCharacter(character: Model)
-    character:WaitForChild("Sword", 10)
+    local sword = character:WaitForChild("Sword", 10) :: BasePart?
+    if not sword then
+        warn("WeaponController: Sword not found")
+        return
+    end
 
     local humanoid = character:WaitForChild("Humanoid") :: Humanoid
     local root = character:WaitForChild("HumanoidRootPart", 10) :: BasePart?
@@ -60,6 +64,18 @@ local function onCharacter(character: Model)
     if not root or not rightUpperArm or not rightHand or not leftUpperArm or not leftHand then
         warn("WeaponController: arm parts not found — swing disabled")
         return
+    end
+
+    -- Watch for the server dropping the sword (weld disabled on impact/pressure).
+    -- When that happens, zero the IK weights so both arms return to idle animation.
+    local swordDropped = false
+    local swordWeld = sword:WaitForChild("SwordWeld", 5) :: WeldConstraint?
+    if swordWeld then
+        swordWeld:GetPropertyChangedSignal("Enabled"):Connect(function()
+            if not swordWeld.Enabled then
+                swordDropped = true
+            end
+        end)
     end
 
     -- Clean up from any previous life
@@ -123,7 +139,10 @@ local function onCharacter(character: Model)
     currentWeight = 0
 
     RunService:BindToRenderStep("WeaponSwing", Enum.RenderPriority.Last.Value, function()
-        if not character:IsDescendantOf(game) then
+        if not character:IsDescendantOf(game) or swordDropped then
+            -- Character gone or sword knocked out — zero weights and stop
+            ik.Weight = 0
+            ik2.Weight = 0
             RunService:UnbindFromRenderStep("WeaponSwing")
             return
         end
