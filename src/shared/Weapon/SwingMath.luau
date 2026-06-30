@@ -12,59 +12,32 @@ local REACH_RADIUS = 4 -- studs: how far the sword tip can reach from root
 local MOUSE_SCALE = 0.003 -- radians per pixel of mouse delta (tuned for feel)
 
 export type SwingState = {
-    yaw: number, -- horizontal angle of the goal point around the character (radians)
+    yaw: number, -- horizontal angle around the character (radians)
     pitch: number, -- vertical angle (radians)
 }
 
 export type SwingDirection = "left" | "right" | "up" | "down" | "none"
 
--- Clamp pitch so the blade can't flip completely over
+-- Arm reach limits — no 360 spin; matches a realistic sword arc
+local MIN_YAW = math.rad(-110)
+local MAX_YAW = math.rad(110)
 local MIN_PITCH = math.rad(-70)
 local MAX_PITCH = math.rad(70)
-
-local function clampPitch(p: number): number
-    return math.clamp(p, MIN_PITCH, MAX_PITCH)
-end
-
-local function wrapYaw(y: number): number
-    while y > math.pi do
-        y -= math.pi * 2
-    end
-    while y < -math.pi do
-        y += math.pi * 2
-    end
-    return y
-end
 
 -- Accumulate mouse delta into swing state
 local function accumulate(state: SwingState, dx: number, dy: number, scale: number?): SwingState
     local s = scale or MOUSE_SCALE
     return {
-        yaw = wrapYaw(state.yaw + dx * s),
-        pitch = clampPitch(state.pitch - dy * s),
+        yaw = math.clamp(state.yaw + dx * s, MIN_YAW, MAX_YAW),
+        pitch = math.clamp(state.pitch - dy * s, MIN_PITCH, MAX_PITCH),
     }
 end
 
--- Convert swing state → world-space goal CFrame for the sword hilt.
--- rootCFrame: the character's HumanoidRootPart CFrame.
--- The goal sits on the REACH_RADIUS sphere, offset from the root.
-local function toGoalCFrame(state: SwingState, rootCFrame: CFrame): CFrame
-    -- Direction the blade tip should point relative to root
-    local localDir = Vector3.new(
-        math.sin(state.yaw) * math.cos(state.pitch),
-        math.sin(state.pitch),
-        -math.cos(state.yaw) * math.cos(state.pitch)
-    )
-
-    local worldDir = rootCFrame:VectorToWorldSpace(localDir)
-    local tipPos = rootCFrame.Position + worldDir * REACH_RADIUS
-
-    -- Goal CFrame: positioned at the midpoint between root and tip,
-    -- oriented so the stick's +Y axis points toward the tip.
-    local midPos = rootCFrame.Position + worldDir * (REACH_RADIUS * 0.5)
-    local goalCFrame = CFrame.lookAt(midPos, midPos + worldDir) * CFrame.Angles(math.pi / 2, 0, 0) -- rotate so +Y is the blade axis
-
-    return goalCFrame, tipPos
+-- Returns the blade direction as local-space components (no Roblox types).
+-- Caller converts to world space via rootCFrame:VectorToWorldSpace().
+local function localBladeDir(state: SwingState): (number, number, number)
+    local cy = math.cos(state.pitch)
+    return math.sin(state.yaw) * cy, math.sin(state.pitch), -math.cos(state.yaw) * cy
 end
 
 -- Classify the dominant direction of a mouse delta
@@ -88,11 +61,13 @@ end
 
 return {
     accumulate = accumulate,
-    toGoalCFrame = toGoalCFrame,
+    localBladeDir = localBladeDir,
     classifyDelta = classifyDelta,
     isWithinReach = isWithinReach,
     REACH_RADIUS = REACH_RADIUS,
     MOUSE_SCALE = MOUSE_SCALE,
+    MIN_YAW = MIN_YAW,
+    MAX_YAW = MAX_YAW,
     MIN_PITCH = MIN_PITCH,
     MAX_PITCH = MAX_PITCH,
 }

@@ -41,9 +41,14 @@ return {
         assert(approxEq(s.pitch, SwingMath.MIN_PITCH), "pitch must clamp at MIN_PITCH")
     end,
 
-    ["accumulate: yaw wraps past π"] = function()
+    ["accumulate: yaw clamps at MAX_YAW"] = function()
         local s = SwingMath.accumulate(neutral, 100000, 0)
-        assert(s.yaw >= -math.pi and s.yaw <= math.pi, "yaw must stay in [-π, π]")
+        assert(s.yaw == SwingMath.MAX_YAW, "yaw must clamp at MAX_YAW, got " .. tostring(s.yaw))
+    end,
+
+    ["accumulate: yaw clamps at MIN_YAW"] = function()
+        local s = SwingMath.accumulate(neutral, -100000, 0)
+        assert(s.yaw == SwingMath.MIN_YAW, "yaw must clamp at MIN_YAW, got " .. tostring(s.yaw))
     end,
 
     -- classifyDelta
