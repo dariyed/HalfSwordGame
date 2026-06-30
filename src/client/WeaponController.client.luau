@@ -93,7 +93,6 @@ local function onCharacter(character: Model)
     ik.Weight = 0
     ik.Parent = humanoid
     ikControl = ik
-    print("WeaponController: IKControl ready — hold LMB to swing")
 
     currentWeight = 0
 
