@@ -36,6 +36,7 @@ end, false, Enum.ContextActionPriority.High.Value, Enum.UserInputType.MouseWheel
 
 camera.CameraType = Enum.CameraType.Scriptable
 UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+UserInputService.MouseIconEnabled = false
 
 local mode = CameraMode.new()
 local yaw = 0
@@ -46,7 +47,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
         return
     end
-    if input.KeyCode == Enum.KeyCode.C then
+    if input.KeyCode == Enum.KeyCode.V then
         mode:toggle()
         local character = player.Character
         if not character then
@@ -80,9 +81,10 @@ end
 -- Priority Camera.Value + 1 means we run AFTER the default Roblox camera each frame,
 -- so our CFrame always wins even if the default script also wrote to it this frame.
 RunService:BindToRenderStep("HalfSwordCamera", Enum.RenderPriority.Camera.Value + 1, function()
-    -- Re-assert these each frame in case another script resets them.
+    -- Re-assert each frame in case another script resets them.
     camera.CameraType = Enum.CameraType.Scriptable
     UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+    UserInputService.MouseIconEnabled = false
 
     local character = player.Character
     if not character then
