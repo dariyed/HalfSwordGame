@@ -53,10 +53,24 @@ UserInputService.InputBegan:Connect(function(input, processed)
         if not character then
             return
         end
+        -- Parts to keep visible in first-person so the player can see their hands/arms.
+        local KEEP_VISIBLE = {
+            -- R15
+            LeftHand = true,
+            RightHand = true,
+            LeftLowerArm = true,
+            RightLowerArm = true,
+            LeftUpperArm = true,
+            RightUpperArm = true,
+            -- R6
+            ["Left Arm"] = true,
+            ["Right Arm"] = true,
+        }
         local inFirst = mode:isFirstPerson()
         for _, part in character:GetDescendants() do
             if part:IsA("BasePart") or part:IsA("Decal") then
-                (part :: BasePart).LocalTransparencyModifier = inFirst and 1 or 0
+                local keep = KEEP_VISIBLE[part.Name] == true
+                (part :: BasePart).LocalTransparencyModifier = (inFirst and not keep) and 1 or 0
             end
         end
     end
