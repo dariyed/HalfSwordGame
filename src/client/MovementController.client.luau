@@ -18,6 +18,13 @@ local ACCEL_FACTOR = 8 -- higher = snappier acceleration
 local DECEL_FACTOR = 10 -- higher = snappier stop
 
 local player = Players.LocalPlayer
+
+-- Disable Roblox's built-in control script so this controller owns movement and jump entirely.
+-- Without this the default script also sets humanoid.Jump = true while Space is held,
+-- causing the character to re-jump every time it lands.
+local PlayerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
+PlayerModule:GetControls():Disable()
+
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 
