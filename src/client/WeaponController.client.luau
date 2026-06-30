@@ -43,17 +43,11 @@ end)
 local function onCharacter(character: Model)
     character:WaitForChild("Sword", 10)
 
-    local rightUpperArm = character:WaitForChild("RightUpperArm", 5) :: BasePart?
-    if not rightUpperArm then
-        warn("WeaponController: RightUpperArm not found")
-        return
-    end
-
     -- The Motor6D that controls where the upper arm sits relative to the torso.
     -- Transform on this motor rotates the WHOLE arm (upper + lower + hand + sword).
-    local shoulder = rightUpperArm:FindFirstChildOfClass("Motor6D") :: Motor6D?
+    local shoulder = character:FindFirstChild("RightShoulder", true) :: Motor6D?
     if not shoulder then
-        warn("WeaponController: shoulder Motor6D not found in RightUpperArm")
+        warn("WeaponController: RightShoulder Motor6D not found in character")
         return
     end
 

@@ -125,7 +125,10 @@ RunService.Heartbeat:Connect(function(dt)
 
     -- intent.direction.z = -1 for W (forward), so negate it to align with camera forward
     local worldDir = camForward * -intent.direction.z + camRight * intent.direction.x
-    humanoid:Move(worldDir, false)
+    -- Guard against the character being removed between the nil check above and here
+    if character:IsDescendantOf(game) then
+        humanoid:Move(worldDir, false)
+    end
 
     -- Rotate the character to face the camera yaw (written by CameraController each frame).
     local root = character:FindFirstChild("HumanoidRootPart") :: BasePart
