@@ -16,16 +16,8 @@ jobs:
       - name: Set up Rokit toolchain
         uses: CompeyDev/setup-rokit@v0.2.1
 
-      - name: Trust toolchain authors
-        run: |
-          rokit trust rojo-rbx/rojo
-          rokit trust UpliftGames/wally
-          rokit trust JohnnyMorganz/StyLua
-          rokit trust Kampfkarren/selene
-          rokit trust lune-org/lune
-
       - name: Install tools
-        run: rokit install
+        run: rokit install --no-trust-check
 
       - name: Check formatting (StyLua)
         run: stylua --check .
