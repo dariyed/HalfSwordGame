@@ -12,18 +12,17 @@ local WeaponConfig = require(game.ReplicatedStorage.Shared.Weapon.WeaponConfig)
 local config = WeaponConfig.get("default")
 
 local function equipSword(character: Model, player: Player)
-    -- Wait for the right hand (R15) or right arm (R6)
-    local hand = character:WaitForChild("RightHand", 5) or character:WaitForChild("Right Arm", 5)
+    -- R6: the arm is one piece; grip sits near the wrist (bottom of the arm)
+    local hand = character:WaitForChild("Right Arm", 5)
     if not hand then
         return
     end
     hand = hand :: BasePart
 
-    -- Attachment on the hand — this is what the stick will chase.
-    -- Offset downward so the grip sits in the palm, blade points away.
+    -- Attachment near the wrist end of the R6 arm
     local handAttach = Instance.new("Attachment")
     handAttach.Name = "WeaponGrip"
-    handAttach.Position = Vector3.new(0, -0.3, 0)
+    handAttach.Position = Vector3.new(0, -0.9, 0) -- bottom of the arm
     handAttach.Parent = hand
 
     -- The stick itself — gray, no character collision
