@@ -18,6 +18,11 @@ local StanceMachine = require(game.ReplicatedStorage.Shared.Movement.StanceMachi
 local BASE_WALK_SPEED = 16 -- studs/s at full speed
 local ACCEL_FACTOR = 8 -- higher = snappier acceleration
 local DECEL_FACTOR = 10 -- higher = snappier stop
+-- Momentum: how much current speed resists direction changes.
+-- At speed 1.0, turn rate = TURN_RATE / (1 + 1.0 * MOMENTUM_FACTOR).
+-- Higher MOMENTUM_FACTOR = W→S takes longer at high speed.
+local TURN_RATE = 14 -- direction changes per second at rest (fast)
+local MOMENTUM_FACTOR = 8 -- how much speed slows down direction changes
 
 local player = Players.LocalPlayer
 
@@ -37,6 +42,7 @@ humanoid.AutoRotate = false
 local stanceMachine = StanceMachine.new()
 local dodgeMachine = DodgeMachine.new()
 local currentSpeedMul = 0 -- smoothed speed multiplier, drives actual WalkSpeed
+local currentVelDir = Vector3.new(0, 0, 0) -- smoothed movement direction (momentum)
 
 -- Track jump to prevent double-jump (and held-Space re-jump on landing)
 local canJump = true
@@ -110,8 +116,19 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     -- intent.direction.z = -1 for W (forward), so negate it to align with camera forward
-    local worldDir = camForward * -intent.direction.z + camRight * intent.direction.x
-    humanoid:Move(worldDir, false)
+    local targetDir = camForward * -intent.direction.z + camRight * intent.direction.x
+
+    -- Momentum: direction changes are slower at higher speed, simulating inertia.
+    -- Faster you were going → lower turn rate → W→S takes longer to kick in.
+    local turnRate = TURN_RATE / (1 + currentSpeedMul * MOMENTUM_FACTOR)
+    if targetDir.Magnitude > 0.001 then
+        currentVelDir = currentVelDir:Lerp(targetDir.Unit, math.min(dt * turnRate, 1))
+    else
+        -- No input: snap direction to zero so deceleration is clean
+        currentVelDir = Vector3.new(0, 0, 0)
+    end
+
+    humanoid:Move(currentVelDir, false)
 
     -- Rotate the character to face the camera yaw (written by CameraController each frame).
     local root = character:FindFirstChild("HumanoidRootPart") :: BasePart
