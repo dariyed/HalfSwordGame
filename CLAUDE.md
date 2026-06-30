@@ -175,6 +175,8 @@ without recall. Lean on them — they are the distilled how-to for this project:
 | `physics-weapon-control` | the mouse-driven sword — constraints, feel knobs, network ownership (Issues #4–#6). |
 | `scriptable-camera` | the custom orbit/first-person camera (Issue #3). |
 | `roblox-api-check` | any unfamiliar Roblox API — check the docs before trusting memory. |
+| `halt` | stopping for now — save your place to `halt.md` so the next session resumes cleanly. |
+| `retro` | finished an issue/PR — quick look-back into `docs/retro-log.md`, and celebrate the win. |
 
 See `.claude/skills/README.md` for the full index. When you discover a reusable technique or
 gotcha, add a new atomic skill there (one technique per file, trigger-rich `description`).

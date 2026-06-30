@@ -14,6 +14,8 @@ surfaced at session start by `../hooks/session-start.sh` and referenced from `..
 | [`physics-weapon-control`](physics-weapon-control/SKILL.md) | the mouse-driven sword: AlignPosition/AlignOrientation, feel knobs, ownership (Issues #4–#6) |
 | [`scriptable-camera`](scriptable-camera/SKILL.md) | the custom orbit/first-person camera (Issue #3) |
 | [`roblox-api-check`](roblox-api-check/SKILL.md) | any unfamiliar Roblox API — check docs before trusting memory |
+| [`halt`](halt/SKILL.md) | stopping for now — save your place to `halt.md` so next session resumes cleanly |
+| [`retro`](retro/SKILL.md) | finished an issue/PR — quick look-back (went well / was hard / learned / win) into `docs/retro-log.md` |
 
 ## How they were made
 

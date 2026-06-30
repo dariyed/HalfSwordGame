@@ -1,5 +1,5 @@
 --[[
-    Pure functions: mouse input → weapon goal CFrame.
+    Pure functions: mouse input → swing state → blade direction.
     No Roblox Instances — safe for headless Lune tests.
 
     How it works:
