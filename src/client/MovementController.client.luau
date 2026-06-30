@@ -9,6 +9,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
+local CameraState = require(game.ReplicatedStorage.Shared.Camera.CameraState)
 local MovementIntent = require(game.ReplicatedStorage.Shared.Movement.MovementIntent)
 local StanceMachine = require(game.ReplicatedStorage.Shared.Movement.StanceMachine)
 
@@ -27,6 +28,10 @@ PlayerModule:GetControls():Disable()
 
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+
+-- Character faces camera direction, not movement direction.
+-- AutoRotate would spin the body toward WASD; we rotate it manually via CameraState.yaw.
+humanoid.AutoRotate = false
 
 local stanceMachine = StanceMachine.new()
 local currentSpeedMul = 0 -- smoothed speed multiplier, drives actual WalkSpeed
@@ -103,4 +108,11 @@ RunService.Heartbeat:Connect(function(dt)
     -- intent.direction.z = -1 for W (forward), so negate it to align with camera forward
     local worldDir = camForward * -intent.direction.z + camRight * intent.direction.x
     humanoid:Move(worldDir, false)
+
+    -- Rotate the character to face the camera yaw (written by CameraController each frame).
+    local root = character:FindFirstChild("HumanoidRootPart") :: BasePart
+    if root then
+        local facingCF = CFrame.new(root.Position) * CFrame.Angles(0, CameraState.yaw, 0)
+        root.CFrame = facingCF
+    end
 end)
