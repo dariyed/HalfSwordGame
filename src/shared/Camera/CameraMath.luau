@@ -3,8 +3,8 @@
     The toCFrame function is Roblox-only and not covered by headless tests.
 ]]
 
-local MIN_PITCH = math.rad(-50)
-local MAX_PITCH = math.rad(80)
+local MIN_PITCH = math.rad(-70)
+local MAX_PITCH = math.rad(20)
 
 local function clampPitch(pitch: number): number
     return math.clamp(pitch, MIN_PITCH, MAX_PITCH)
