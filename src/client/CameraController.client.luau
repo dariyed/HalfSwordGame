@@ -14,7 +14,7 @@ local CameraState = require(game.ReplicatedStorage.Shared.Camera.CameraState)
 local Sensitivity = require(game.ReplicatedStorage.Shared.Settings.Sensitivity)
 
 -- === Feel knobs ===
-local CAMERA_DISTANCE = 12
+local CAMERA_DISTANCE = 7
 local HEAD_OFFSET = Vector3.new(0, 1.5, 0)
 local WALL_MARGIN = 0.35
 local sensitivity = Sensitivity.DEFAULT
