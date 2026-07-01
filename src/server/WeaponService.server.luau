@@ -39,6 +39,7 @@ local function equipSword(character: Model, player: Player)
     sword.BrickColor = BrickColor.new("Medium stone grey")
     sword.Material = Enum.Material.SmoothPlastic
     sword.CanCollide = true -- CanCollide=true so Touched fires on the client
+    sword.Massless = true -- zero mass so wall collisions don't push the character
     sword.Anchored = false
     sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character

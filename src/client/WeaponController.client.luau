@@ -87,7 +87,7 @@ local function onCharacter(character: Model)
     -- Drop detection runs on the CLIENT because Touched fires where physics are simulated.
     -- The character assembly is client-network-owned, so this is the right place.
     local INSTANT_DROP_SPEED = 25 -- studs/s: hit part velocity that instant-drops the sword
-    local SUSTAIN_TIME = 1.5 -- seconds of continuous contact before a pressure-drop
+    local SUSTAIN_TIME = 0.5 -- seconds of continuous contact before a pressure-drop
     local contacts: { [BasePart]: boolean } = {}
     local contactTimer = 0
 
