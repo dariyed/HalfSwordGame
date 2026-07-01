@@ -107,7 +107,9 @@ local function onCharacter(character: Model)
             end
             return
         end
-        if dist > DROP_THRESHOLD then
+        -- Only drop during active swing (LMB held); floor/spawn contact when
+        -- carrying the sword should not break the grip.
+        if lmbDown and dist > DROP_THRESHOLD then
             triggerDrop()
         end
     end)
