@@ -1,17 +1,13 @@
 --[[
-    Spawns a gray sword and holds it at the RightHand via AlignPosition +
-    AlignOrientation — mover constraints with limited MaxForce/MaxTorque.
+    Spawns a gray sword and welds it to RightHand.
 
-    Physics-based grip:
-      • AlignPosition pulls the sword center to a point 1.1 studs below the hand.
-      • AlignOrientation matches the sword's rotation to the hand's rotation.
-      • Because the force is capped, wall pressure physically bends the sword away.
-      • WeaponController (client) watches the drift between sword and grip point.
-        When drift > its threshold it fires DropSword; this script destroys the
-        constraints so the sword falls free as a normal physics object.
+    WeldConstraint: sword is part of the character's rigid body — zero lag,
+    zero oscillation, zero spinning on fast swings. The sword collides with
+    walls and drops after sustained contact (detected by WeaponController via
+    sword.Touched on the client).
 
-    === Grip knobs ===
-    GRIP_STRENGTH   higher = harder to dislodge; lower = bends more easily on wall contact
+    Drop: client fires DropSword → server destroys the weld and moves the
+    sword to Workspace so it falls free as a normal physics object.
 ]]
 
 local Players = game:GetService("Players")
@@ -25,13 +21,8 @@ local dropSwordRemote = Instance.new("RemoteEvent")
 dropSwordRemote.Name = "DropSword"
 dropSwordRemote.Parent = weaponEvents
 
--- === Grip knobs ===
-local GRIP_STRENGTH = 900 -- N: force cap; sword bends when wall force exceeds this
-
 type SwordRefs = {
-    alignPos: AlignPosition,
-    alignOri: AlignOrientation,
-    gripAttach: Attachment,
+    weld: WeldConstraint,
     sword: Part,
 }
 local swordRefs: { [Player]: SwordRefs } = {}
@@ -54,55 +45,25 @@ local function equipSword(character: Model, player: Player)
     sword.Parent = character
     sword:SetNetworkOwner(player)
 
-    -- Grip attachment on the hand: 1.1 studs below hand center (matching old offset)
-    local gripAttach = Instance.new("Attachment")
-    gripAttach.Name = "SwordGrip"
-    gripAttach.Position = Vector3.new(0, -1.1, 0)
-    gripAttach.Parent = hand
-
-    -- Sword attachment at sword center (no offset)
-    local swordAttach = Instance.new("Attachment")
-    swordAttach.Name = "SwordRoot"
-    swordAttach.Parent = sword
-
-    -- AlignPosition: pulls sword toward grip point; can be overwhelmed by wall pressure
-    -- RigidityEnabled=true: constraint acts like a weld up to MaxForce —
-    -- zero spring lag, zero oscillation. When wall force exceeds MaxForce
-    -- the constraint can no longer hold and the sword bends/drifts away.
-    local alignPos = Instance.new("AlignPosition")
-    alignPos.Name = "SwordAlignPos"
-    alignPos.MaxForce = GRIP_STRENGTH
-    alignPos.RigidityEnabled = true
-    alignPos.Attachment0 = swordAttach
-    alignPos.Attachment1 = gripAttach
-    alignPos.Parent = sword
-
-    local alignOri = Instance.new("AlignOrientation")
-    alignOri.Name = "SwordAlignOri"
-    alignOri.MaxTorque = GRIP_STRENGTH * 0.5
-    alignOri.RigidityEnabled = true
-    alignOri.Attachment0 = swordAttach
-    alignOri.Attachment1 = gripAttach
-    alignOri.Parent = sword
+    local weld = Instance.new("WeldConstraint")
+    weld.Name = "SwordWeld"
+    weld.Part0 = hand
+    weld.Part1 = sword
+    weld.Parent = sword
 
     swordRefs[player] = {
-        alignPos = alignPos,
-        alignOri = alignOri,
-        gripAttach = gripAttach,
+        weld = weld,
         sword = sword :: Part,
     }
 end
 
--- Client fires this when drift > DROP_THRESHOLD
 dropSwordRemote.OnServerEvent:Connect(function(player: Player)
     local refs = swordRefs[player]
     if not refs then
         return
     end
-    refs.alignPos:Destroy()
-    refs.alignOri:Destroy()
-    refs.gripAttach:Destroy()
-    refs.sword.Parent = workspace -- move to workspace so it persists after respawn
+    refs.weld:Destroy()
+    refs.sword.Parent = workspace
     swordRefs[player] = nil
 end)
 
