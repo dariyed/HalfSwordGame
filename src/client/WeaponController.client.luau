@@ -73,13 +73,17 @@ local function onCharacter(character: Model)
     -- swordDropped: once true the render loop zeros IK weights and returns arms to idle
     local swordDropped = false
 
-    -- Touched-based wall detection.
-    -- Sword drops after HOLD_TIME seconds of continuous contact with a
-    -- non-floor, non-character part while LMB is held.
+    -- Pressure-based drop detection (no timer).
     --
-    -- Floor filter: any part whose center is > 2 studs below the character
-    -- root (e.g. Baseplate) is ignored so walking never causes a false drop.
-    local HOLD_TIME = 0.35
+    -- With WeldConstraint the sword is one assembly with the character.
+    -- "Pressure" = character actively walking but being stopped by the wall.
+    -- We measure: intendedSpeed (WalkSpeed × MoveDirection) vs actualSpeed
+    -- (horizontal AssemblyLinearVelocity). When the wall blocks movement the
+    -- ratio collapses → drop fires instantly.
+    --
+    -- Requires all three at once: LMB held, sword touching a wall, and the
+    -- character actively trying to move into that wall.
+    local PRESSURE_RATIO = 0.35 -- drop when actual speed < 35% of intended
 
     local function triggerDrop()
         if swordDropped then
@@ -93,35 +97,26 @@ local function onCharacter(character: Model)
         if hit:IsDescendantOf(character) then
             return true
         end
+        -- Parts whose center is well below the root are floor-level → ignore
         return hit.Position.Y < root.Position.Y - 2
     end
 
-    -- wallParts: parts currently in contact with the sword (excluding ignored).
-    -- wallContactStart: when the first qualifying part touched (nil = not touching).
     local wallParts: { [Instance]: boolean } = {}
-    local wallContactStart: number? = nil
-    local gripEstablished = false
 
     local touchConn = sword.Touched:Connect(function(hit)
-        if isIgnored(hit) then
-            return
-        end
-        wallParts[hit] = true
-        -- Start the hold timer the moment LMB is held during wall contact.
-        if lmbDown and wallContactStart == nil then
-            wallContactStart = os.clock()
+        if not isIgnored(hit) then
+            wallParts[hit] = true
         end
     end)
 
     local touchEndConn = sword.TouchEnded:Connect(function(hit)
-        if isIgnored(hit) then
-            return
-        end
-        wallParts[hit] = nil
-        if next(wallParts) == nil then
-            wallContactStart = nil
+        if not isIgnored(hit) then
+            wallParts[hit] = nil
         end
     end)
+
+    -- Brief settle window on spawn so the weld replicates before monitoring.
+    local readyAt = os.clock() + 0.4
 
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(_dt)
@@ -132,27 +127,24 @@ local function onCharacter(character: Model)
             return
         end
 
-        -- Settle check: don't start monitoring until the sword is close to the hand.
-        if not gripEstablished then
-            local gripPos = (rightHand.CFrame * CFrame.new(0, -1.1, 0)).Position
-            if (sword.Position - gripPos).Magnitude < 0.3 then
-                gripEstablished = true
-            end
+        if os.clock() < readyAt then
             return
         end
-
         if not lmbDown then
-            -- LMB released: cancel any pending wall timer
-            wallContactStart = nil
+            return
+        end
+        if next(wallParts) == nil then
             return
         end
 
-        -- If already touching a wall when LMB is pressed, start the timer now.
-        if next(wallParts) ~= nil and wallContactStart == nil then
-            wallContactStart = os.clock()
+        -- Pressure check: is the character being stopped by the wall?
+        local intendedSpeed = humanoid.WalkSpeed * humanoid.MoveDirection.Magnitude
+        if intendedSpeed < 4 then
+            return -- not actively walking; resting sword against wall is fine
         end
-
-        if wallContactStart ~= nil and (os.clock() - wallContactStart) > HOLD_TIME then
+        local vel = root.AssemblyLinearVelocity
+        local actualSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+        if actualSpeed < intendedSpeed * PRESSURE_RATIO then
             triggerDrop()
         end
     end)
