@@ -110,6 +110,12 @@ local function onCharacter(character: Model)
             return
         end
 
+        -- Only check while LMB is held — passive brushing against walls shouldn't drop the sword
+        if not lmbDown then
+            contactTimer = 0
+            return
+        end
+
         local parts = workspace:GetPartsInPart(sword, overlapParams)
 
         local anyContact = false
