@@ -77,7 +77,7 @@ local function onCharacter(character: Model)
     -- Sword drops after HOLD_TIME seconds of continuous contact with a
     -- non-floor, non-character part while LMB is held.
     -- 0.15s feels near-instant without false-triggering on brief grazes.
-    local HOLD_TIME = 0.15
+    local HOLD_TIME = 0.3
 
     local function triggerDrop()
         if swordDropped then
