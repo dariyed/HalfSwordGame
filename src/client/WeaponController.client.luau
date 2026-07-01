@@ -73,10 +73,15 @@ local function onCharacter(character: Model)
     -- swordDropped: once true the render loop zeros IK weights and returns arms to idle
     local swordDropped = false
 
-    local DROP_THRESHOLD = 0.6 -- studs of drift before grip breaks
-    -- How long to ignore drops after any event that could move the hand:
-    -- (grip establishes on spawn, or LMB is pressed and IK activates).
-    local LMB_SETTLE = 0.15
+    -- Velocity-divergence drop detection.
+    --
+    -- IKControl moves the hand in the ANIMATION system — it does not change
+    -- AssemblyLinearVelocity (physics velocity). So pressing LMB, swinging
+    -- the mouse, etc. cannot cause a false drop.
+    --
+    -- When the sword hits a wall its physics velocity drops to ~0 while the
+    -- character assembly keeps moving. The velocity gap = wall contact → drop.
+    local VEL_THRESHOLD = 8 -- studs/s divergence before grip breaks
 
     local function triggerDrop()
         if swordDropped then
@@ -86,12 +91,9 @@ local function onCharacter(character: Model)
         dropSwordRemote:FireServer()
     end
 
-    -- ignoreDropUntil: math.huge until the grip first establishes, then reset on
-    -- each LMB press (detected by transition false→true inside Heartbeat).
-    -- This is local to each character so respawning starts clean.
+    -- Wait until the sword has physically settled near the hand before
+    -- monitoring (AlignPosition takes a few frames to pull it in on spawn).
     local gripEstablished = false
-    local ignoreDropUntil = math.huge
-    local prevLmbDown = false
 
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(_dt)
@@ -100,26 +102,24 @@ local function onCharacter(character: Model)
             return
         end
 
-        -- Detect LMB press edge (false→true) and start a grace window so the
-        -- IK constraint has time to pull the sword to the new hand position.
-        if lmbDown and not prevLmbDown then
-            ignoreDropUntil = os.clock() + LMB_SETTLE
-        end
-        prevLmbDown = lmbDown
-
-        local gripPos = (rightHand.CFrame * CFrame.new(0, -1.1, 0)).Position
-        local dist = (sword.Position - gripPos).Magnitude
-
         if not gripEstablished then
-            if dist < DROP_THRESHOLD * 0.4 then
+            local gripPos = (rightHand.CFrame * CFrame.new(0, -1.1, 0)).Position
+            if (sword.Position - gripPos).Magnitude < 0.3 then
                 gripEstablished = true
-                -- Give the constraints a moment to fully settle before monitoring.
-                ignoreDropUntil = os.clock() + LMB_SETTLE
             end
             return
         end
 
-        if lmbDown and dist > DROP_THRESHOLD and os.clock() > ignoreDropUntil then
+        if not lmbDown then
+            return
+        end
+
+        -- AssemblyLinearVelocity is pure physics: IK/animation does NOT affect it.
+        -- charVel = character walk velocity; swordVel = sword physics velocity.
+        -- Divergence spikes only when the sword is physically stopped by something.
+        local charVel = rightHand.AssemblyLinearVelocity
+        local swordVel = sword.AssemblyLinearVelocity
+        if (charVel - swordVel).Magnitude > VEL_THRESHOLD then
             triggerDrop()
         end
     end)

@@ -27,8 +27,8 @@ dropSwordRemote.Name = "DropSword"
 dropSwordRemote.Parent = weaponEvents
 
 -- === Grip knobs ===
-local GRIP_STRENGTH = 600 -- N: force cap before sword bends away
-local GRIP_RESPONSE = 20 -- responsiveness: how quickly constraints correct drift
+local GRIP_STRENGTH = 1500 -- N: force cap; higher = sword tracks hand tighter
+local GRIP_RESPONSE = 35  -- responsiveness: how quickly constraints correct drift
 
 type SwordRefs = {
     alignPos: AlignPosition,
