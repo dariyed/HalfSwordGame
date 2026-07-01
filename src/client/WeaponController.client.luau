@@ -132,6 +132,14 @@ local function onCharacter(character: Model)
                 return
             end
 
+            -- Skip floor-like contacts: if the part's center is mostly below the
+            -- sword's center the sword tip is just dipping into the ground.
+            -- Walls are beside the sword (direction.Y ≈ 0) and are counted.
+            local toPartDir = (part.Position - sword.Position)
+            if toPartDir.Magnitude > 0 and toPartDir.Unit.Y < -0.7 then
+                continue
+            end
+
             -- Accumulate continuous contact time per part
             contactTimers[part] = (contactTimers[part] or 0) + dt
             if contactTimers[part] >= SUSTAIN_TIME then
