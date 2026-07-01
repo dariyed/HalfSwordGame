@@ -11,8 +11,7 @@
         constraints so the sword falls free as a normal physics object.
 
     === Grip knobs ===
-    GRIP_STRENGTH   higher = harder to dislodge (MaxForce / MaxTorque base)
-    GRIP_RESPONSE   higher = snappier tracking, but more reaction force on character
+    GRIP_STRENGTH   higher = harder to dislodge; lower = bends more easily on wall contact
 ]]
 
 local Players = game:GetService("Players")
@@ -27,8 +26,7 @@ dropSwordRemote.Name = "DropSword"
 dropSwordRemote.Parent = weaponEvents
 
 -- === Grip knobs ===
-local GRIP_STRENGTH = 1200 -- N: force cap; higher = sword tracks hand tighter
-local GRIP_RESPONSE = 8   -- lower = softer spring, no overshoot/oscillation
+local GRIP_STRENGTH = 900 -- N: force cap; sword bends when wall force exceeds this
 
 type SwordRefs = {
     alignPos: AlignPosition,
@@ -68,21 +66,21 @@ local function equipSword(character: Model, player: Player)
     swordAttach.Parent = sword
 
     -- AlignPosition: pulls sword toward grip point; can be overwhelmed by wall pressure
+    -- RigidityEnabled=true: constraint acts like a weld up to MaxForce —
+    -- zero spring lag, zero oscillation. When wall force exceeds MaxForce
+    -- the constraint can no longer hold and the sword bends/drifts away.
     local alignPos = Instance.new("AlignPosition")
     alignPos.Name = "SwordAlignPos"
     alignPos.MaxForce = GRIP_STRENGTH
-    alignPos.Responsiveness = GRIP_RESPONSE
-    alignPos.RigidityEnabled = false
+    alignPos.RigidityEnabled = true
     alignPos.Attachment0 = swordAttach
     alignPos.Attachment1 = gripAttach
     alignPos.Parent = sword
 
-    -- AlignOrientation: keeps sword rotation matched to hand rotation
     local alignOri = Instance.new("AlignOrientation")
     alignOri.Name = "SwordAlignOri"
     alignOri.MaxTorque = GRIP_STRENGTH * 0.5
-    alignOri.Responsiveness = GRIP_RESPONSE
-    alignOri.RigidityEnabled = false
+    alignOri.RigidityEnabled = true
     alignOri.Attachment0 = swordAttach
     alignOri.Attachment1 = gripAttach
     alignOri.Parent = sword
