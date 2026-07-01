@@ -6,7 +6,7 @@
       • Left arm:  grips the sword handle GRIP_OFFSET studs below the right hand.
     When LMB is released both arms return to the idle animation.
 
-    The sword is welded to RightHand by WeaponService and follows for free.
+    The sword is held at RightHand by AlignPosition/AlignOrientation in WeaponService.
 ]]
 
 local Players = game:GetService("Players")
@@ -15,7 +15,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local SwingMath = require(game.ReplicatedStorage.Shared.Weapon.SwingMath)
 
--- RemoteEvent: client fires this to tell the server to disable the sword weld
+-- RemoteEvent: client fires this to tell the server to destroy the grip constraints
 local dropSwordRemote =
     game.ReplicatedStorage:WaitForChild("WeaponEvents"):WaitForChild("DropSword") :: RemoteEvent
 
@@ -35,7 +35,6 @@ local ikTarget: Part? = nil
 local ikTarget2: Part? = nil
 local ikControl: IKControl? = nil
 local ikControl2: IKControl? = nil
-local swordProbe: Part? = nil -- small detection probe; lives in workspace
 
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
@@ -71,46 +70,15 @@ local function onCharacter(character: Model)
         return
     end
 
-    -- swordDropped: set true by client detection OR when server confirms weld is off.
-    -- Once true, the render loop zeros IK weights and stops.
+    -- swordDropped: once true the render loop zeros IK weights and returns arms to idle
     local swordDropped = false
 
-    -- Fallback: watch for the server disabling the weld (e.g. future server-side drop logic)
-    local swordWeld = sword:WaitForChild("SwordWeld", 5) :: WeldConstraint?
-    if swordWeld then
-        swordWeld:GetPropertyChangedSignal("Enabled"):Connect(function()
-            if not swordWeld.Enabled then
-                swordDropped = true
-            end
-        end)
-    end
-
-    -- Drop detection via a small probe placed at the sword's CENTER.
-    -- Querying the full sword shape causes false drops because the sword tip
-    -- dips into the floor when the arm extends forward. The probe (0.8 stud cube)
-    -- sits at the sword's midpoint — the floor is well below it, walls are beside it.
-    local INSTANT_DROP_SPEED = 25 -- studs/s: overlapping part speed for instant drop
-    local SUSTAIN_TIME = 0.8 -- seconds one part must stay overlapping before drop
-
-    local overlapParams = OverlapParams.new()
-    overlapParams.FilterDescendantsInstances = { character }
-    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-
-    if swordProbe then
-        swordProbe:Destroy()
-    end
-    local probe = Instance.new("Part")
-    probe.Name = "SwordProbe"
-    probe.Size = Vector3.new(0.8, 0.8, 0.8)
-    probe.Anchored = true
-    probe.CanCollide = false
-    probe.CanTouch = false
-    probe.Transparency = 1
-    probe.CFrame = sword.CFrame
-    probe.Parent = workspace
-    swordProbe = probe
-
-    local contactTimers: { [BasePart]: number } = {}
+    -- Physics-based drop detection.
+    -- AlignPosition in WeaponService holds the sword at gripPos with limited MaxForce.
+    -- When wall pressure overwhelms the constraint the sword physically bends away.
+    -- We watch the distance between sword center and gripPos; when drift exceeds
+    -- DROP_THRESHOLD the grip is broken and we fire the drop remote.
+    local DROP_THRESHOLD = 0.5 -- studs of drift before the grip is considered broken
 
     local function triggerDrop()
         if swordDropped then
@@ -121,43 +89,14 @@ local function onCharacter(character: Model)
     end
 
     local contactConn: RBXScriptConnection
-    contactConn = RunService.Heartbeat:Connect(function(dt)
+    contactConn = RunService.Heartbeat:Connect(function(_dt)
         if swordDropped or not character:IsDescendantOf(game) then
             contactConn:Disconnect()
-            probe:Destroy()
             return
         end
-
-        if not lmbDown then
-            contactTimers = {}
-            return
-        end
-
-        probe.CFrame = sword.CFrame
-        local parts = workspace:GetPartsInPart(probe, overlapParams)
-        local thisFrame: { [BasePart]: boolean } = {}
-
-        for _, part in parts do
-            thisFrame[part] = true
-
-            if part.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
-                triggerDrop()
-                probe:Destroy()
-                return
-            end
-
-            contactTimers[part] = (contactTimers[part] or 0) + dt
-            if contactTimers[part] >= SUSTAIN_TIME then
-                triggerDrop()
-                probe:Destroy()
-                return
-            end
-        end
-
-        for part in contactTimers do
-            if not thisFrame[part] then
-                contactTimers[part] = nil
-            end
+        local gripPos = (rightHand.CFrame * CFrame.new(0, -1.1, 0)).Position
+        if (sword.Position - gripPos).Magnitude > DROP_THRESHOLD then
+            triggerDrop()
         end
     end)
 

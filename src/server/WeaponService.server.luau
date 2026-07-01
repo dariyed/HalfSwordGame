@@ -1,20 +1,23 @@
 --[[
-    Spawns a gray stick and welds it rigidly to the right hand.
-    WeaponController (LocalScript) creates a local IKControl that swings the arm;
-    the sword follows for free because of the WeldConstraint.
+    Spawns a gray sword and holds it at the RightHand via AlignPosition +
+    AlignOrientation — mover constraints with limited MaxForce/MaxTorque.
 
-    Drop mechanic:
-    Roblox fires Touched events on the machine that SIMULATES the physics.
-    The character assembly (including the welded sword) is client-network-owned,
-    so Touched fires on the CLIENT, not the server. WeaponController handles the
-    collision detection and fires DropSword here when a drop is triggered.
-    This script just disables the weld in response.
+    Physics-based grip:
+      • AlignPosition pulls the sword center to a point 1.1 studs below the hand.
+      • AlignOrientation matches the sword's rotation to the hand's rotation.
+      • Because the force is capped, wall pressure physically bends the sword away.
+      • WeaponController (client) watches the drift between sword and grip point.
+        When drift > its threshold it fires DropSword; this script destroys the
+        constraints so the sword falls free as a normal physics object.
+
+    === Grip knobs ===
+    GRIP_STRENGTH   higher = harder to dislodge (MaxForce / MaxTorque base)
+    GRIP_RESPONSE   higher = snappier tracking, but more reaction force on character
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- RemoteEvent so the client can signal a drop to the server
 local weaponEvents = Instance.new("Folder")
 weaponEvents.Name = "WeaponEvents"
 weaponEvents.Parent = ReplicatedStorage
@@ -23,8 +26,17 @@ local dropSwordRemote = Instance.new("RemoteEvent")
 dropSwordRemote.Name = "DropSword"
 dropSwordRemote.Parent = weaponEvents
 
--- One weld per player so OnServerEvent can find and disable it
-local swordWelds: { [Player]: WeldConstraint } = {}
+-- === Grip knobs ===
+local GRIP_STRENGTH = 2000 -- N: force cap before sword bends away
+local GRIP_RESPONSE = 20 -- responsiveness: how quickly constraints correct drift
+
+type SwordRefs = {
+    alignPos: AlignPosition,
+    alignOri: AlignOrientation,
+    gripAttach: Attachment,
+    sword: Part,
+}
+local swordRefs: { [Player]: SwordRefs } = {}
 
 local function equipSword(character: Model, player: Player)
     local hand = character:WaitForChild("RightHand", 5) :: BasePart?
@@ -38,36 +50,62 @@ local function equipSword(character: Model, player: Player)
     sword.Size = Vector3.new(0.2, 2, 0.2)
     sword.BrickColor = BrickColor.new("Medium stone grey")
     sword.Material = Enum.Material.SmoothPlastic
-    sword.CanCollide = false -- no wall push while held; drop detection uses GetPartsInPart
+    sword.CanCollide = true
     sword.Anchored = false
     sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character
-
-    -- Explicitly give the player network ownership of the sword so that Touched
-    -- events fire in their LocalScript (WeaponController). Without this, Roblox
-    -- may keep the sword server-owned even though it is welded to the character.
     sword:SetNetworkOwner(player)
 
-    local weld = Instance.new("WeldConstraint")
-    weld.Name = "SwordWeld"
-    weld.Part0 = hand
-    weld.Part1 = sword
-    weld.Parent = sword
+    -- Grip attachment on the hand: 1.1 studs below hand center (matching old offset)
+    local gripAttach = Instance.new("Attachment")
+    gripAttach.Name = "SwordGrip"
+    gripAttach.Position = Vector3.new(0, -1.1, 0)
+    gripAttach.Parent = hand
 
-    swordWelds[player] = weld
+    -- Sword attachment at sword center (no offset)
+    local swordAttach = Instance.new("Attachment")
+    swordAttach.Name = "SwordRoot"
+    swordAttach.Parent = sword
+
+    -- AlignPosition: pulls sword toward grip point; can be overwhelmed by wall pressure
+    local alignPos = Instance.new("AlignPosition")
+    alignPos.Name = "SwordAlignPos"
+    alignPos.MaxForce = GRIP_STRENGTH
+    alignPos.Responsiveness = GRIP_RESPONSE
+    alignPos.RigidityEnabled = false
+    alignPos.Attachment0 = swordAttach
+    alignPos.Attachment1 = gripAttach
+    alignPos.Parent = sword
+
+    -- AlignOrientation: keeps sword rotation matched to hand rotation
+    local alignOri = Instance.new("AlignOrientation")
+    alignOri.Name = "SwordAlignOri"
+    alignOri.MaxTorque = GRIP_STRENGTH * 0.5
+    alignOri.Responsiveness = GRIP_RESPONSE
+    alignOri.RigidityEnabled = false
+    alignOri.Attachment0 = swordAttach
+    alignOri.Attachment1 = gripAttach
+    alignOri.Parent = sword
+
+    swordRefs[player] = {
+        alignPos = alignPos,
+        alignOri = alignOri,
+        gripAttach = gripAttach,
+        sword = sword :: Part,
+    }
 end
 
--- Client fires this when it detects a drop condition (fast hit or sustained pressure).
--- Enable CanCollide so the dropped sword bounces and rests as a real physics object.
+-- Client fires this when drift > DROP_THRESHOLD
 dropSwordRemote.OnServerEvent:Connect(function(player: Player)
-    local weld = swordWelds[player]
-    if weld and weld.Enabled then
-        weld.Enabled = false
-        local sword = weld.Parent :: BasePart?
-        if sword then
-            sword.CanCollide = true
-        end
+    local refs = swordRefs[player]
+    if not refs then
+        return
     end
+    refs.alignPos:Destroy()
+    refs.alignOri:Destroy()
+    refs.gripAttach:Destroy()
+    refs.sword.Parent = workspace -- move to workspace so it persists after respawn
+    swordRefs[player] = nil
 end)
 
 Players.PlayerAdded:Connect(function(player)
@@ -77,12 +115,12 @@ Players.PlayerAdded:Connect(function(player)
         end)
     end)
     player.CharacterRemoving:Connect(function()
-        swordWelds[player] = nil
+        swordRefs[player] = nil
     end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-    swordWelds[player] = nil
+    swordRefs[player] = nil
 end)
 
 for _, player in Players:GetPlayers() do
