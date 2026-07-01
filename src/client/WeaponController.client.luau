@@ -73,17 +73,16 @@ local function onCharacter(character: Model)
     -- swordDropped: once true the render loop zeros IK weights and returns arms to idle
     local swordDropped = false
 
-    -- Pressure-based drop detection (no timer).
+    -- Pivot-angle drop detection.
     --
-    -- With WeldConstraint the sword is one assembly with the character.
-    -- "Pressure" = character actively walking but being stopped by the wall.
-    -- We measure: intendedSpeed (WalkSpeed × MoveDirection) vs actualSpeed
-    -- (horizontal AssemblyLinearVelocity). When the wall blocks movement the
-    -- ratio collapses → drop fires instantly.
+    -- The sword hilt is pinned at the grip (AlignPosition, rigid).
+    -- AlignOrientation is a weak wrist spring — wall torque can overcome it,
+    -- rotating the blade around the hilt.
     --
-    -- Requires all three at once: LMB held, sword touching a wall, and the
-    -- character actively trying to move into that wall.
-    local PRESSURE_RATIO = 0.35 -- drop when actual speed < 35% of intended
+    -- We measure the angle between the blade direction (hilt → center) and
+    -- world-down. When the blade is deflected past MAX_ANGLE while in contact
+    -- with a wall, the grip is broken and the sword drops instantly.
+    local MAX_ANGLE = 50 -- degrees of blade deflection before drop
 
     local function triggerDrop()
         if swordDropped then
@@ -97,7 +96,6 @@ local function onCharacter(character: Model)
         if hit:IsDescendantOf(character) then
             return true
         end
-        -- Parts whose center is well below the root are floor-level → ignore
         return hit.Position.Y < root.Position.Y - 2
     end
 
@@ -115,8 +113,8 @@ local function onCharacter(character: Model)
         end
     end)
 
-    -- Brief settle window on spawn so the weld replicates before monitoring.
-    local readyAt = os.clock() + 0.4
+    -- Settle window: let AlignPosition pull the hilt into position before monitoring.
+    local readyAt = os.clock() + 0.5
 
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(_dt)
@@ -137,14 +135,18 @@ local function onCharacter(character: Model)
             return
         end
 
-        -- Pressure check: is the character being stopped by the wall?
-        local intendedSpeed = humanoid.WalkSpeed * humanoid.MoveDirection.Magnitude
-        if intendedSpeed < 4 then
-            return -- not actively walking; resting sword against wall is fine
+        -- Hilt = grip attachment world position (AlignPosition holds it here).
+        -- Blade direction = from hilt toward sword center.
+        -- Angle from world-down = how far the blade has been deflected.
+        local hiltPos = rightHand.CFrame:PointToWorldSpace(Vector3.new(0, -1.1, 0))
+        local bladeDir = (sword.Position - hiltPos)
+        if bladeDir.Magnitude < 0.01 then
+            return
         end
-        local vel = root.AssemblyLinearVelocity
-        local actualSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
-        if actualSpeed < intendedSpeed * PRESSURE_RATIO then
+        local angleDeg = math.deg(
+            math.acos(math.clamp(bladeDir.Unit:Dot(Vector3.new(0, -1, 0)), -1, 1))
+        )
+        if angleDeg > MAX_ANGLE then
             triggerDrop()
         end
     end)
