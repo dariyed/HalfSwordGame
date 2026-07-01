@@ -28,7 +28,6 @@ local player = Players.LocalPlayer
 
 local swingState: SwingMath.SwingState = { yaw = 0, pitch = math.rad(-25) }
 local lmbDown = false
-local lmbDownAt = -1 -- os.clock() when LMB was last pressed
 local currentWeight = 0
 
 -- Module-level refs for cleanup on respawn
@@ -43,7 +42,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         lmbDown = true
-        lmbDownAt = os.clock()
     end
 end)
 
@@ -75,13 +73,10 @@ local function onCharacter(character: Model)
     -- swordDropped: once true the render loop zeros IK weights and returns arms to idle
     local swordDropped = false
 
-    -- Physics-based drop detection.
-    -- AlignPosition in WeaponService holds the sword at gripPos with limited MaxForce.
-    -- When wall pressure overwhelms the constraint the sword physically bends away.
-    -- We watch the distance between sword center and gripPos; when drift exceeds
-    -- DROP_THRESHOLD the grip is broken and we fire the drop remote.
-    local DROP_THRESHOLD = 0.5 -- studs of drift before the grip is considered broken
-    local LMB_SETTLE = 0.12 -- seconds after LMB press to ignore drops (IK settle lag)
+    local DROP_THRESHOLD = 0.6 -- studs of drift before grip breaks
+    -- How long to ignore drops after any event that could move the hand:
+    -- (grip establishes on spawn, or LMB is pressed and IK activates).
+    local LMB_SETTLE = 0.15
 
     local function triggerDrop()
         if swordDropped then
@@ -91,10 +86,12 @@ local function onCharacter(character: Model)
         dropSwordRemote:FireServer()
     end
 
-    -- Only start checking drift once the sword has settled into the grip position.
-    -- On spawn the server-placed sword may be a frame behind the client hand pose,
-    -- so we wait until distance < half the threshold before we trust the reading.
+    -- ignoreDropUntil: math.huge until the grip first establishes, then reset on
+    -- each LMB press (detected by transition false→true inside Heartbeat).
+    -- This is local to each character so respawning starts clean.
     local gripEstablished = false
+    local ignoreDropUntil = math.huge
+    local prevLmbDown = false
 
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(_dt)
@@ -102,19 +99,27 @@ local function onCharacter(character: Model)
             contactConn:Disconnect()
             return
         end
+
+        -- Detect LMB press edge (false→true) and start a grace window so the
+        -- IK constraint has time to pull the sword to the new hand position.
+        if lmbDown and not prevLmbDown then
+            ignoreDropUntil = os.clock() + LMB_SETTLE
+        end
+        prevLmbDown = lmbDown
+
         local gripPos = (rightHand.CFrame * CFrame.new(0, -1.1, 0)).Position
         local dist = (sword.Position - gripPos).Magnitude
+
         if not gripEstablished then
-            if dist < DROP_THRESHOLD * 0.5 then
+            if dist < DROP_THRESHOLD * 0.4 then
                 gripEstablished = true
+                -- Give the constraints a moment to fully settle before monitoring.
+                ignoreDropUntil = os.clock() + LMB_SETTLE
             end
             return
         end
-        -- Only drop during active swing (LMB held), and only after the IK has had
-        -- time to settle (LMB_SETTLE). Without the grace period the hand jumps to
-        -- the swing target on the first frame, the sword lags behind by one physics
-        -- step, and the distance spike fires a false drop immediately on press.
-        if lmbDown and dist > DROP_THRESHOLD and (os.clock() - lmbDownAt) > LMB_SETTLE then
+
+        if lmbDown and dist > DROP_THRESHOLD and os.clock() > ignoreDropUntil then
             triggerDrop()
         end
     end)
