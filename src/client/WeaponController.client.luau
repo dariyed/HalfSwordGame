@@ -85,15 +85,19 @@ local function onCharacter(character: Model)
     end
 
     -- Drop detection via geometric overlap query (GetPartsInPart).
-    -- CanCollide=false on the sword means no wall push; the query detects overlap
-    -- purely from shape/position, independent of collision settings.
+    -- CanCollide=false on the sword means no wall push while held.
+    -- Per-part timers: each overlapping part must stay in contact for SUSTAIN_TIME
+    -- continuously before triggering a drop. Walking contact with the floor breaks
+    -- between strides so its timer never accumulates to the threshold.
     local INSTANT_DROP_SPEED = 25 -- studs/s: overlapping part speed for instant drop
-    local SUSTAIN_TIME = 0.5 -- seconds of continuous overlap before pressure-drop
-    local contactTimer = 0
+    local SUSTAIN_TIME = 0.8 -- seconds one part must stay in contact before drop
 
     local overlapParams = OverlapParams.new()
     overlapParams.FilterDescendantsInstances = { character }
     overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    -- Maps each currently-touching part to how long it has been in contact
+    local contactTimers: { [BasePart]: number } = {}
 
     local function triggerDrop()
         if swordDropped then
@@ -110,30 +114,37 @@ local function onCharacter(character: Model)
             return
         end
 
-        -- Only check while LMB is held — passive brushing against walls shouldn't drop the sword
+        -- Only count while actively swinging (LMB held)
         if not lmbDown then
-            contactTimer = 0
+            contactTimers = {}
             return
         end
 
         local parts = workspace:GetPartsInPart(sword, overlapParams)
+        local thisFrame: { [BasePart]: boolean } = {}
 
-        local anyContact = false
         for _, part in parts do
+            thisFrame[part] = true
+
+            -- Instant drop: something fast struck the sword
             if part.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
                 triggerDrop()
                 return
             end
-            anyContact = true
+
+            -- Accumulate continuous contact time per part
+            contactTimers[part] = (contactTimers[part] or 0) + dt
+            if contactTimers[part] >= SUSTAIN_TIME then
+                triggerDrop()
+                return
+            end
         end
 
-        if anyContact then
-            contactTimer += dt
-            if contactTimer >= SUSTAIN_TIME then
-                triggerDrop()
+        -- Clear timers for parts that left contact this frame
+        for part in contactTimers do
+            if not thisFrame[part] then
+                contactTimers[part] = nil
             end
-        else
-            contactTimer = 0
         end
     end)
 
