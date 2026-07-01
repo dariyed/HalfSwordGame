@@ -20,7 +20,7 @@ local dropSwordRemote =
     game.ReplicatedStorage:WaitForChild("WeaponEvents"):WaitForChild("DropSword") :: RemoteEvent
 
 -- === Feel knobs ===
-local WEIGHT_SPEED = 0.15 -- lerp factor per frame: arm engage / release speed
+local WEIGHT_SPEED = 0.28 -- lerp factor per frame: arm engage / release speed
 local ARM_REACH = 1.8 -- studs from right shoulder to IK target (arm extended)
 local GRIP_OFFSET = 0.7 -- studs below right hand where the left hand grips
 
@@ -28,6 +28,7 @@ local player = Players.LocalPlayer
 
 local swingState: SwingMath.SwingState = { yaw = 0, pitch = math.rad(-25) }
 local lmbDown = false
+local lmbDownAt = -1 -- os.clock() when LMB was last pressed
 local currentWeight = 0
 
 -- Module-level refs for cleanup on respawn
@@ -42,6 +43,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         lmbDown = true
+        lmbDownAt = os.clock()
     end
 end)
 
@@ -79,6 +81,7 @@ local function onCharacter(character: Model)
     -- We watch the distance between sword center and gripPos; when drift exceeds
     -- DROP_THRESHOLD the grip is broken and we fire the drop remote.
     local DROP_THRESHOLD = 0.5 -- studs of drift before the grip is considered broken
+    local LMB_SETTLE = 0.12 -- seconds after LMB press to ignore drops (IK settle lag)
 
     local function triggerDrop()
         if swordDropped then
@@ -107,9 +110,11 @@ local function onCharacter(character: Model)
             end
             return
         end
-        -- Only drop during active swing (LMB held); floor/spawn contact when
-        -- carrying the sword should not break the grip.
-        if lmbDown and dist > DROP_THRESHOLD then
+        -- Only drop during active swing (LMB held), and only after the IK has had
+        -- time to settle (LMB_SETTLE). Without the grace period the hand jumps to
+        -- the swing target on the first frame, the sword lags behind by one physics
+        -- step, and the distance spike fires a false drop immediately on press.
+        if lmbDown and dist > DROP_THRESHOLD and (os.clock() - lmbDownAt) > LMB_SETTLE then
             triggerDrop()
         end
     end)
