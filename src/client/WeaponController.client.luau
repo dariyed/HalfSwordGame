@@ -73,15 +73,13 @@ local function onCharacter(character: Model)
     -- swordDropped: once true the render loop zeros IK weights and returns arms to idle
     local swordDropped = false
 
-    -- Velocity-divergence drop detection.
+    -- Touched-based wall detection.
+    -- Sword drops after HOLD_TIME seconds of continuous contact with a
+    -- non-floor, non-character part while LMB is held.
     --
-    -- IKControl moves the hand in the ANIMATION system — it does not change
-    -- AssemblyLinearVelocity (physics velocity). So pressing LMB, swinging
-    -- the mouse, etc. cannot cause a false drop.
-    --
-    -- When the sword hits a wall its physics velocity drops to ~0 while the
-    -- character assembly keeps moving. The velocity gap = wall contact → drop.
-    local VEL_THRESHOLD = 8 -- studs/s divergence before grip breaks
+    -- Floor filter: any part whose center is > 2 studs below the character
+    -- root (e.g. Baseplate) is ignored so walking never causes a false drop.
+    local HOLD_TIME = 0.35
 
     local function triggerDrop()
         if swordDropped then
@@ -91,17 +89,50 @@ local function onCharacter(character: Model)
         dropSwordRemote:FireServer()
     end
 
-    -- Wait until the sword has physically settled near the hand before
-    -- monitoring (AlignPosition takes a few frames to pull it in on spawn).
+    local function isIgnored(hit: BasePart): boolean
+        if hit:IsDescendantOf(character) then
+            return true
+        end
+        return hit.Position.Y < root.Position.Y - 2
+    end
+
+    -- wallParts: parts currently in contact with the sword (excluding ignored).
+    -- wallContactStart: when the first qualifying part touched (nil = not touching).
+    local wallParts: { [Instance]: boolean } = {}
+    local wallContactStart: number? = nil
     local gripEstablished = false
+
+    local touchConn = sword.Touched:Connect(function(hit)
+        if isIgnored(hit) then
+            return
+        end
+        wallParts[hit] = true
+        -- Start the hold timer the moment LMB is held during wall contact.
+        if lmbDown and wallContactStart == nil then
+            wallContactStart = os.clock()
+        end
+    end)
+
+    local touchEndConn = sword.TouchEnded:Connect(function(hit)
+        if isIgnored(hit) then
+            return
+        end
+        wallParts[hit] = nil
+        if next(wallParts) == nil then
+            wallContactStart = nil
+        end
+    end)
 
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(_dt)
         if swordDropped or not character:IsDescendantOf(game) then
             contactConn:Disconnect()
+            touchConn:Disconnect()
+            touchEndConn:Disconnect()
             return
         end
 
+        -- Settle check: don't start monitoring until the sword is close to the hand.
         if not gripEstablished then
             local gripPos = (rightHand.CFrame * CFrame.new(0, -1.1, 0)).Position
             if (sword.Position - gripPos).Magnitude < 0.3 then
@@ -111,15 +142,17 @@ local function onCharacter(character: Model)
         end
 
         if not lmbDown then
+            -- LMB released: cancel any pending wall timer
+            wallContactStart = nil
             return
         end
 
-        -- AssemblyLinearVelocity is pure physics: IK/animation does NOT affect it.
-        -- charVel = character walk velocity; swordVel = sword physics velocity.
-        -- Divergence spikes only when the sword is physically stopped by something.
-        local charVel = rightHand.AssemblyLinearVelocity
-        local swordVel = sword.AssemblyLinearVelocity
-        if (charVel - swordVel).Magnitude > VEL_THRESHOLD then
+        -- If already touching a wall when LMB is pressed, start the timer now.
+        if next(wallParts) ~= nil and wallContactStart == nil then
+            wallContactStart = os.clock()
+        end
+
+        if wallContactStart ~= nil and (os.clock() - wallContactStart) > HOLD_TIME then
             triggerDrop()
         end
     end)
