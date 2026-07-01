@@ -43,6 +43,11 @@ local function equipSword(character: Model, player: Player)
     sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character
 
+    -- Explicitly give the player network ownership of the sword so that Touched
+    -- events fire in their LocalScript (WeaponController). Without this, Roblox
+    -- may keep the sword server-owned even though it is welded to the character.
+    sword:SetNetworkOwner(player)
+
     local weld = Instance.new("WeldConstraint")
     weld.Name = "SwordWeld"
     weld.Part0 = hand
