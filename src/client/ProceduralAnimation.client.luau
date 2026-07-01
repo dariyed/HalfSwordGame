@@ -34,8 +34,13 @@ local function onCharacter(character: Model)
 
     local waist = lowerTorso:WaitForChild("Waist") :: Motor6D
 
-    local currentLeanX = 0 -- current forward lean (degrees, smoothed)
-    local currentLeanZ = 0 -- current side lean (degrees, smoothed)
+    -- The Animator writes Motor6D.Transform every frame and overrides it.
+    -- C0 is the joint's rest position — the Animator never touches it,
+    -- so modifying C0 persists across animation updates reliably.
+    local baseC0 = waist.C0
+
+    local currentLeanX = 0
+    local currentLeanZ = 0
 
     RunService:BindToRenderStep("ProceduralAnim", Enum.RenderPriority.Last.Value, function()
         if not character:IsDescendantOf(game) then
@@ -43,33 +48,23 @@ local function onCharacter(character: Model)
             return
         end
 
-        -- Flat (horizontal) velocity
         local vel = rootPart.AssemblyLinearVelocity
         local flatVel = Vector3.new(vel.X, 0, vel.Z)
         local speed = flatVel.Magnitude
         local t = math.clamp(speed / math.max(humanoid.WalkSpeed, 1), 0, 1)
 
-        -- Forward lean target
         local targetLeanX = IDLE_LEAN + t * MOVE_LEAN
 
-        -- Side lean: project velocity onto the character's right axis
         local sideT = 0
         if speed > 0.5 then
-            local moveDir = flatVel.Unit
-            sideT = moveDir:Dot(rootPart.CFrame.RightVector)
+            sideT = flatVel.Unit:Dot(rootPart.CFrame.RightVector)
         end
         local targetLeanZ = -sideT * SIDE_LEAN * t
 
-        -- Smooth toward targets
         currentLeanX = currentLeanX + (targetLeanX - currentLeanX) * LEAN_SMOOTH
         currentLeanZ = currentLeanZ + (targetLeanZ - currentLeanZ) * LEAN_SMOOTH
 
-        -- Apply to the Waist joint on top of whatever the Animator set
-        waist.Transform = CFrame.Angles(
-            math.rad(-currentLeanX), -- negative = tilt forward
-            0,
-            math.rad(currentLeanZ)
-        )
+        waist.C0 = baseC0 * CFrame.Angles(math.rad(-currentLeanX), 0, math.rad(currentLeanZ))
     end)
 end
 
