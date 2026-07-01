@@ -88,6 +88,11 @@ local function onCharacter(character: Model)
         dropSwordRemote:FireServer()
     end
 
+    -- Only start checking drift once the sword has settled into the grip position.
+    -- On spawn the server-placed sword may be a frame behind the client hand pose,
+    -- so we wait until distance < half the threshold before we trust the reading.
+    local gripEstablished = false
+
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(_dt)
         if swordDropped or not character:IsDescendantOf(game) then
@@ -95,7 +100,14 @@ local function onCharacter(character: Model)
             return
         end
         local gripPos = (rightHand.CFrame * CFrame.new(0, -1.1, 0)).Position
-        if (sword.Position - gripPos).Magnitude > DROP_THRESHOLD then
+        local dist = (sword.Position - gripPos).Magnitude
+        if not gripEstablished then
+            if dist < DROP_THRESHOLD * 0.5 then
+                gripEstablished = true
+            end
+            return
+        end
+        if dist > DROP_THRESHOLD then
             triggerDrop()
         end
     end)
