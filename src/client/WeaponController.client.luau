@@ -35,6 +35,7 @@ local ikTarget: Part? = nil
 local ikTarget2: Part? = nil
 local ikControl: IKControl? = nil
 local ikControl2: IKControl? = nil
+local swordProbe: Part? = nil -- small detection probe; lives in workspace
 
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
@@ -84,19 +85,31 @@ local function onCharacter(character: Model)
         end)
     end
 
-    -- Drop detection via geometric overlap query (GetPartsInPart).
-    -- CanCollide=false on the sword means no wall push while held.
-    -- Per-part timers: each overlapping part must stay in contact for SUSTAIN_TIME
-    -- continuously before triggering a drop. Walking contact with the floor breaks
-    -- between strides so its timer never accumulates to the threshold.
+    -- Drop detection via a small probe placed at the sword's CENTER.
+    -- Querying the full sword shape causes false drops because the sword tip
+    -- dips into the floor when the arm extends forward. The probe (0.8 stud cube)
+    -- sits at the sword's midpoint — the floor is well below it, walls are beside it.
     local INSTANT_DROP_SPEED = 25 -- studs/s: overlapping part speed for instant drop
-    local SUSTAIN_TIME = 0.8 -- seconds one part must stay in contact before drop
+    local SUSTAIN_TIME = 0.8 -- seconds one part must stay overlapping before drop
 
     local overlapParams = OverlapParams.new()
     overlapParams.FilterDescendantsInstances = { character }
     overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
-    -- Maps each currently-touching part to how long it has been in contact
+    if swordProbe then
+        swordProbe:Destroy()
+    end
+    local probe = Instance.new("Part")
+    probe.Name = "SwordProbe"
+    probe.Size = Vector3.new(0.8, 0.8, 0.8)
+    probe.Anchored = true
+    probe.CanCollide = false
+    probe.CanTouch = false
+    probe.Transparency = 1
+    probe.CFrame = sword.CFrame
+    probe.Parent = workspace
+    swordProbe = probe
+
     local contactTimers: { [BasePart]: number } = {}
 
     local function triggerDrop()
@@ -111,44 +124,36 @@ local function onCharacter(character: Model)
     contactConn = RunService.Heartbeat:Connect(function(dt)
         if swordDropped or not character:IsDescendantOf(game) then
             contactConn:Disconnect()
+            probe:Destroy()
             return
         end
 
-        -- Only count while actively swinging (LMB held)
         if not lmbDown then
             contactTimers = {}
             return
         end
 
-        local parts = workspace:GetPartsInPart(sword, overlapParams)
+        probe.CFrame = sword.CFrame
+        local parts = workspace:GetPartsInPart(probe, overlapParams)
         local thisFrame: { [BasePart]: boolean } = {}
 
         for _, part in parts do
             thisFrame[part] = true
 
-            -- Instant drop: something fast struck the sword
             if part.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
                 triggerDrop()
+                probe:Destroy()
                 return
             end
 
-            -- Skip floor-like contacts: if the part's center is mostly below the
-            -- sword's center the sword tip is just dipping into the ground.
-            -- Walls are beside the sword (direction.Y ≈ 0) and are counted.
-            local toPartDir = (part.Position - sword.Position)
-            if toPartDir.Magnitude > 0 and toPartDir.Unit.Y < -0.7 then
-                continue
-            end
-
-            -- Accumulate continuous contact time per part
             contactTimers[part] = (contactTimers[part] or 0) + dt
             if contactTimers[part] >= SUSTAIN_TIME then
                 triggerDrop()
+                probe:Destroy()
                 return
             end
         end
 
-        -- Clear timers for parts that left contact this frame
         for part in contactTimers do
             if not thisFrame[part] then
                 contactTimers[part] = nil
