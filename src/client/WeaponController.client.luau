@@ -73,16 +73,11 @@ local function onCharacter(character: Model)
     -- swordDropped: once true the render loop zeros IK weights and returns arms to idle
     local swordDropped = false
 
-    -- Pivot-angle drop detection.
-    --
-    -- The sword hilt is pinned at the grip (AlignPosition, rigid).
-    -- AlignOrientation is a weak wrist spring — wall torque can overcome it,
-    -- rotating the blade around the hilt.
-    --
-    -- We measure the angle between the blade direction (hilt → center) and
-    -- world-down. When the blade is deflected past MAX_ANGLE while in contact
-    -- with a wall, the grip is broken and the sword drops instantly.
-    local MAX_ANGLE = 50 -- degrees of blade deflection before drop
+    -- Touched-based drop detection.
+    -- Sword drops after HOLD_TIME seconds of continuous contact with a
+    -- non-floor, non-character part while LMB is held.
+    -- 0.15s feels near-instant without false-triggering on brief grazes.
+    local HOLD_TIME = 0.15
 
     local function triggerDrop()
         if swordDropped then
@@ -100,21 +95,27 @@ local function onCharacter(character: Model)
     end
 
     local wallParts: { [Instance]: boolean } = {}
+    local wallContactStart: number? = nil
 
     local touchConn = sword.Touched:Connect(function(hit)
         if not isIgnored(hit) then
             wallParts[hit] = true
+            if lmbDown and wallContactStart == nil then
+                wallContactStart = os.clock()
+            end
         end
     end)
 
     local touchEndConn = sword.TouchEnded:Connect(function(hit)
         if not isIgnored(hit) then
             wallParts[hit] = nil
+            if next(wallParts) == nil then
+                wallContactStart = nil
+            end
         end
     end)
 
-    -- Settle window: let AlignPosition pull the hilt into position before monitoring.
-    local readyAt = os.clock() + 0.5
+    local readyAt = os.clock() + 0.4
 
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(_dt)
@@ -128,25 +129,17 @@ local function onCharacter(character: Model)
         if os.clock() < readyAt then
             return
         end
+
         if not lmbDown then
-            return
-        end
-        if next(wallParts) == nil then
+            wallContactStart = nil
             return
         end
 
-        -- Hilt = grip attachment world position (AlignPosition holds it here).
-        -- Blade direction = from hilt toward sword center.
-        -- Angle from world-down = how far the blade has been deflected.
-        local hiltPos = rightHand.CFrame:PointToWorldSpace(Vector3.new(0, -1.1, 0))
-        local bladeDir = (sword.Position - hiltPos)
-        if bladeDir.Magnitude < 0.01 then
-            return
+        if next(wallParts) ~= nil and wallContactStart == nil then
+            wallContactStart = os.clock()
         end
-        local angleDeg = math.deg(
-            math.acos(math.clamp(bladeDir.Unit:Dot(Vector3.new(0, -1, 0)), -1, 1))
-        )
-        if angleDeg > MAX_ANGLE then
+
+        if wallContactStart ~= nil and (os.clock() - wallContactStart) > HOLD_TIME then
             triggerDrop()
         end
     end)

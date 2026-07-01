@@ -1,17 +1,10 @@
 --[[
-    Spawns a sword and anchors its HILT at the grip point via AlignPosition.
+    Spawns a sword and welds it to RightHand.
 
-    Pivot mechanic:
-      • AlignPosition keeps the hilt (top of sword) at the grip attachment —
-        rigid, high MaxForce, so the hilt never drifts.
-      • AlignOrientation is a weak spring (WRIST_TORQUE) — it tries to keep
-        the sword aligned with the arm, but wall contact can overcome it and
-        rotate the blade sideways around the hilt.
-      • WeaponController measures the angle between the sword and vertical.
-        When the blade is deflected past MAX_ANGLE the grip is lost.
-
-    Tuning knobs
-      WRIST_TORQUE   lower = bends easier; higher = stronger grip
+    WeldConstraint: zero lag, zero oscillation, zero spinning.
+    The sword is part of the character assembly so it collides reliably.
+    Drop: client fires DropSword → server destroys weld and moves sword to
+    Workspace so it falls free as a normal physics object.
 ]]
 
 local Players = game:GetService("Players")
@@ -25,12 +18,8 @@ local dropSwordRemote = Instance.new("RemoteEvent")
 dropSwordRemote.Name = "DropSword"
 dropSwordRemote.Parent = weaponEvents
 
-local WRIST_TORQUE = 25 -- N·stud: spring strength the wrist can apply
-
 type SwordRefs = {
-    alignPos: AlignPosition,
-    alignOri: AlignOrientation,
-    gripAttach: Attachment,
+    weld: WeldConstraint,
     sword: Part,
 }
 local swordRefs: { [Player]: SwordRefs } = {}
@@ -49,49 +38,18 @@ local function equipSword(character: Model, player: Player)
     sword.Material = Enum.Material.SmoothPlastic
     sword.CanCollide = true
     sword.Anchored = false
-    -- Spawn center 2.1 studs below hand so hilt (+Y end, 1 stud above center)
-    -- sits at the grip point (1.1 studs below hand).
-    sword.CFrame = hand.CFrame * CFrame.new(0, -2.1, 0)
+    sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character
     sword:SetNetworkOwner(player)
 
-    -- Grip attachment on hand: 1.1 studs below hand center
-    local gripAttach = Instance.new("Attachment")
-    gripAttach.Name = "SwordGrip"
-    gripAttach.Position = Vector3.new(0, -1.1, 0)
-    gripAttach.Parent = hand
-
-    -- Hilt attachment at the TOP end of the sword (+Y = 1 stud above center)
-    local swordAttach = Instance.new("Attachment")
-    swordAttach.Name = "SwordHilt"
-    swordAttach.Position = Vector3.new(0, 1, 0)
-    swordAttach.Parent = sword
-
-    -- Keeps hilt locked at grip point. Very high force so walls cannot
-    -- displace the hilt — they can only rotate the blade around it.
-    local alignPos = Instance.new("AlignPosition")
-    alignPos.Name = "SwordAlignPos"
-    alignPos.MaxForce = 8000
-    alignPos.RigidityEnabled = true
-    alignPos.Attachment0 = swordAttach
-    alignPos.Attachment1 = gripAttach
-    alignPos.Parent = sword
-
-    -- Wrist spring: tries to keep blade aligned with the arm direction.
-    -- Wall torque can overcome WRIST_TORQUE, rotating the blade.
-    local alignOri = Instance.new("AlignOrientation")
-    alignOri.Name = "SwordAlignOri"
-    alignOri.MaxTorque = WRIST_TORQUE
-    alignOri.Responsiveness = 10
-    alignOri.RigidityEnabled = false
-    alignOri.Attachment0 = swordAttach
-    alignOri.Attachment1 = gripAttach
-    alignOri.Parent = sword
+    local weld = Instance.new("WeldConstraint")
+    weld.Name = "SwordWeld"
+    weld.Part0 = hand
+    weld.Part1 = sword
+    weld.Parent = sword
 
     swordRefs[player] = {
-        alignPos = alignPos,
-        alignOri = alignOri,
-        gripAttach = gripAttach,
+        weld = weld,
         sword = sword :: Part,
     }
 end
@@ -101,9 +59,7 @@ dropSwordRemote.OnServerEvent:Connect(function(player: Player)
     if not refs then
         return
     end
-    refs.alignPos:Destroy()
-    refs.alignOri:Destroy()
-    refs.gripAttach:Destroy()
+    refs.weld:Destroy()
     refs.sword.Parent = workspace
     swordRefs[player] = nil
 end)
