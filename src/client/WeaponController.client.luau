@@ -84,12 +84,16 @@ local function onCharacter(character: Model)
         end)
     end
 
-    -- Drop detection runs on the CLIENT because Touched fires where physics are simulated.
-    -- The character assembly is client-network-owned, so this is the right place.
-    local INSTANT_DROP_SPEED = 25 -- studs/s: hit part velocity that instant-drops the sword
-    local SUSTAIN_TIME = 0.5 -- seconds of continuous contact before a pressure-drop
-    local contacts: { [BasePart]: boolean } = {}
+    -- Drop detection via geometric overlap query (GetPartsInPart).
+    -- CanCollide=false on the sword means no wall push; the query detects overlap
+    -- purely from shape/position, independent of collision settings.
+    local INSTANT_DROP_SPEED = 25 -- studs/s: overlapping part speed for instant drop
+    local SUSTAIN_TIME = 0.5 -- seconds of continuous overlap before pressure-drop
     local contactTimer = 0
+
+    local overlapParams = OverlapParams.new()
+    overlapParams.FilterDescendantsInstances = { character }
+    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
     local function triggerDrop()
         if swordDropped then
@@ -99,34 +103,25 @@ local function onCharacter(character: Model)
         dropSwordRemote:FireServer()
     end
 
-    local touchConn: RBXScriptConnection
-    touchConn = sword.Touched:Connect(function(hit)
-        if swordDropped then
-            return
-        end
-        if hit:IsDescendantOf(character) then
-            return
-        end
-        if hit.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
-            triggerDrop()
-            return
-        end
-        contacts[hit] = true
-    end)
-
-    sword.TouchEnded:Connect(function(hit)
-        contacts[hit] = nil
-    end)
-
     local contactConn: RBXScriptConnection
     contactConn = RunService.Heartbeat:Connect(function(dt)
         if swordDropped or not character:IsDescendantOf(game) then
-            touchConn:Disconnect()
             contactConn:Disconnect()
-            contacts = {}
             return
         end
-        if next(contacts) ~= nil then
+
+        local parts = workspace:GetPartsInPart(sword, overlapParams)
+
+        local anyContact = false
+        for _, part in parts do
+            if part.AssemblyLinearVelocity.Magnitude >= INSTANT_DROP_SPEED then
+                triggerDrop()
+                return
+            end
+            anyContact = true
+        end
+
+        if anyContact then
             contactTimer += dt
             if contactTimer >= SUSTAIN_TIME then
                 triggerDrop()

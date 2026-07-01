@@ -38,8 +38,7 @@ local function equipSword(character: Model, player: Player)
     sword.Size = Vector3.new(0.2, 2, 0.2)
     sword.BrickColor = BrickColor.new("Medium stone grey")
     sword.Material = Enum.Material.SmoothPlastic
-    sword.CanCollide = true -- CanCollide=true so Touched fires on the client
-    sword.Massless = true -- zero mass so wall collisions don't push the character
+    sword.CanCollide = false -- no wall push while held; drop detection uses GetPartsInPart
     sword.Anchored = false
     sword.CFrame = hand.CFrame * CFrame.new(0, -1.1, 0)
     sword.Parent = character
@@ -58,11 +57,16 @@ local function equipSword(character: Model, player: Player)
     swordWelds[player] = weld
 end
 
--- Client fires this when it detects a drop condition (fast hit or sustained pressure)
+-- Client fires this when it detects a drop condition (fast hit or sustained pressure).
+-- Enable CanCollide so the dropped sword bounces and rests as a real physics object.
 dropSwordRemote.OnServerEvent:Connect(function(player: Player)
     local weld = swordWelds[player]
     if weld and weld.Enabled then
         weld.Enabled = false
+        local sword = weld.Parent :: BasePart?
+        if sword then
+            sword.CanCollide = true
+        end
     end
 end)
 
